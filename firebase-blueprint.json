@@ -1,0 +1,97 @@
+{
+  "entities": {
+    "user": {
+      "title": "User",
+      "description": "User profile with role and authentication details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 150 },
+        "avatar": { "type": "string", "maxLength": 500000 },
+        "role": { "type": "string", "enum": ["superadmin", "admin", "model", "client"] },
+        "twoFactorEnabled": { "type": "boolean" },
+        "isVerified": { "type": "boolean" },
+        "phone": { "type": "string", "maxLength": 30 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "name", "email", "role"]
+    },
+    "model": {
+      "title": "ModelProfile",
+      "description": "Talent profile in Venezuela with rates, mediakit, and identity verification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "ownerEmail": { "type": "string", "maxLength": 150 },
+        "name": { "type": "string", "maxLength": 100 },
+        "stageName": { "type": "string", "maxLength": 100 },
+        "category": { "type": "string", "enum": ["promotora", "pasarela", "fotografia", "hostess", "streaming"] },
+        "categoryLabel": { "type": "string", "maxLength": 100 },
+        "roleLabel": { "type": "string", "maxLength": 100 },
+        "verified": { "type": "boolean" },
+        "featured": { "type": "boolean" },
+        "isPaused": { "type": "boolean" },
+        "rating": { "type": "number" },
+        "reviewCount": { "type": "number" },
+        "hourlyRate": { "type": "number" },
+        "dailyRate": { "type": "number" },
+        "avatar": { "type": "string", "maxLength": 500000 },
+        "bio": { "type": "string", "maxLength": 1000 },
+        "whatsappNumber": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "enum": ["activa", "pausada", "en_evento"] },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "name", "category", "verified", "isPaused", "hourlyRate", "dailyRate"]
+    },
+    "review": {
+      "title": "Review",
+      "description": "Client rating and verified feedback for a model",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "modelId": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 100 },
+        "authorCompany": { "type": "string", "maxLength": 100 },
+        "rating": { "type": "number" },
+        "date": { "type": "string", "maxLength": 50 },
+        "comment": { "type": "string", "maxLength": 1000 },
+        "verifiedBooking": { "type": "boolean" }
+      },
+      "required": ["id", "modelId", "authorName", "rating", "comment"]
+    },
+    "event": {
+      "title": "EventItem",
+      "description": "Promoted brand activations and events in Venezuela",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 150 },
+        "tagline": { "type": "string", "maxLength": 200 },
+        "date": { "type": "string", "maxLength": 50 },
+        "location": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["upcoming", "casting_open", "completed"] },
+        "organizer": { "type": "string", "maxLength": 100 }
+      },
+      "required": ["id", "title", "date", "location", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "user",
+      "description": "Registered user accounts with role and preferences"
+    },
+    "/models/{modelId}": {
+      "schema": "model",
+      "description": "Model profiles catalog and verified status"
+    },
+    "/reviews/{reviewId}": {
+      "schema": "review",
+      "description": "Model reviews and scores"
+    },
+    "/events/{eventId}": {
+      "schema": "event",
+      "description": "Events and casting calls"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "DIFUSION - Modelos & Promotoras",
+  "description": "Catálogo profesional de modelos y promotoras de Venezuela para eventos, mediakit interactivo con Instagram y TikTok real, gestión super admin y contratación directa.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,1301 @@
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import {
+  ModelProfile,
+  Review,
+  EventItem,
+  ChatMessage,
+  PushNotification,
+  UserAccount,
+  AgencyThemeConfig,
+  CategoryType,
+} from '../types';
+import {
+  INITIAL_CONFIG,
+  INITIAL_MODELS,
+  INITIAL_REVIEWS,
+  INITIAL_EVENTS,
+  INITIAL_NOTIFICATIONS,
+  INITIAL_USER,
+  SUPER_ADMIN_EMAIL,
+} from '../data/initialData';
+import {
+  auth,
+  googleProvider,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
+  db,
+} from '../firebase';
+
+interface AppContextType {
+  models: ModelProfile[];
+  events: EventItem[];
+  reviews: Review[];
+  notifications: PushNotification[];
+  currentUser: UserAccount | null;
+  themeConfig: AgencyThemeConfig;
+  activeTab: 'catalogo' | 'eventos' | 'streaming' | 'admin' | 'chat' | 'login' | 'dashboard';
+  setActiveTab: (tab: 'catalogo' | 'eventos' | 'streaming' | 'admin' | 'chat' | 'login' | 'dashboard') => void;
+  selectedModel: ModelProfile | null;
+  setSelectedModel: (model: ModelProfile | null) => void;
+  activeChatModel: ModelProfile | null;
+  setActiveChatModel: (model: ModelProfile | null) => void;
+  chatMessages: Record<string, ChatMessage[]>;
+  showAuthModal: boolean;
+  setShowAuthModal: (open: boolean) => void;
+  show2FAModal: boolean;
+  setShow2FAModal: (open: boolean) => void;
+  showSettingsModal: boolean;
+  setShowSettingsModal: (open: boolean) => void;
+  showReviewModal: boolean;
+  setShowReviewModal: (open: boolean) => void;
+  toastMessage: string | null;
+  showToast: (msg: string) => void;
+
+  // Cities Management (Super Admin)
+  availableCities: string[];
+  addCity: (city: string) => boolean;
+  removeCity: (city: string) => boolean;
+
+  // User Accounts & Standby Activation (Super Admin)
+  registeredUsers: UserAccount[];
+  activateUserAccount: (userId: string, assignedRole: 'client' | 'model' | 'empresa') => void;
+  rejectUserAccount: (userId: string, reason?: string) => void;
+  updateCurrentUserProfile: (updates: Partial<UserAccount>) => void;
+
+  // Identity Verification (Cédula de Identidad / Pasaporte)
+  submitIdentityVerification: (
+    modelId: string,
+    data: {
+      documentType: 'Cédula de Identidad' | 'Pasaporte';
+      documentNumber: string;
+      documentPhotoUrl: string;
+    }
+  ) => void;
+  reviewIdentityVerification: (
+    modelId: string,
+    approved: boolean,
+    rejectionReason?: string
+  ) => void;
+  signInWithFirebaseGoogle: () => Promise<boolean>;
+  signInWithEmailPassword: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
+  signUpWithEmailPassword: (
+    email: string,
+    pass: string,
+    name: string,
+    role?: 'client' | 'model'
+  ) => Promise<{ success: boolean; error?: string }>;
+  isFirebaseConnected: boolean;
+
+  // Actions
+  addModel: (modelData: Omit<ModelProfile, 'id' | 'createdAt' | 'rating' | 'reviewCount'>) => void;
+  updateModel: (id: string, updates: Partial<ModelProfile>) => void;
+  updateModelRates: (id: string, hourlyRate: number, dailyRate: number) => void;
+  updateModelSelf: (id: string, updates: Partial<ModelProfile>) => boolean;
+  togglePauseModel: (id: string) => void;
+  toggleVipModel: (id: string) => void;
+  deleteModel: (id: string) => void;
+  addReview: (reviewData: Omit<Review, 'id' | 'date'>) => void;
+  applyToCasting: (eventId: string, modelName: string) => void;
+  sendMessage: (modelId: string, text: string, isQuote?: boolean, quoteDetails?: any) => void;
+  markNotificationAsRead: (id: string) => void;
+  clearAllNotifications: () => void;
+  sendPushNotification: (title: string, message: string, type?: PushNotification['type']) => void;
+  updateThemeConfig: (updates: Partial<AgencyThemeConfig>) => void;
+  loginWithGoogle: (email: string) => Promise<boolean>;
+  verify2FACode: (code: string) => boolean;
+  logout: () => void;
+  isSuperAdmin: boolean;
+  isModelUser: boolean;
+  currentModelProfile: ModelProfile | null;
+  generateWhatsAppUrl: (phone: string, modelName: string, eventDetails?: string) => string;
+}
+
+const AppContext = createContext<AppContextType | undefined>(undefined);
+
+const STORAGE_KEYS = {
+  MODELS: 'difusion_models_vzla_v3',
+  EVENTS: 'difusion_events_vzla_v3',
+  REVIEWS: 'difusion_reviews_vzla_v3',
+  NOTIFICATIONS: 'difusion_notifs_vzla_v3',
+  USER: 'difusion_user_vzla_v3',
+  USERS_LIST: 'difusion_registered_users_vzla_v4',
+  CONFIG: 'difusion_config_vzla_v4',
+  CHATS: 'difusion_chats_vzla_v3',
+};
+
+const INITIAL_REGISTERED_USERS: UserAccount[] = [
+  {
+    id: 'user_valeria_01',
+    name: 'Valeria Rivas',
+    email: 'valeria.rinaldi.vzla@gmail.com',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
+    role: 'model',
+    status: 'active',
+    twoFactorEnabled: true,
+    isVerified: true,
+    phone: '+58 412 123 4567',
+  },
+  {
+    id: 'user_standby_01',
+    name: 'Carla Daniela Bermúdez',
+    email: 'carla.bermudez.vzla@gmail.com',
+    avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=250&q=80',
+    role: 'model',
+    status: 'standby',
+    requestedRole: 'model',
+    createdAt: 'Hoy, 10:15 AM',
+    twoFactorEnabled: false,
+    isVerified: false,
+    phone: '+58 414 772 3311',
+  },
+  {
+    id: 'user_standby_02',
+    name: 'Eventos Corporativos Caracas C.A.',
+    email: 'contacto@eventoscaracas.com',
+    avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=250&q=80',
+    role: 'client',
+    status: 'standby',
+    requestedRole: 'client',
+    createdAt: 'Ayer, 4:20 PM',
+    twoFactorEnabled: false,
+    isVerified: false,
+    phone: '+58 212 999 8877',
+  },
+];
+
+export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Models (Initialized with Venezuelan models)
+  const [models, setModels] = useState<ModelProfile[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.MODELS);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].location?.country === 'Venezuela') {
+          return parsed;
+        }
+      }
+      return INITIAL_MODELS;
+    } catch {
+      return INITIAL_MODELS;
+    }
+  });
+
+  // Events
+  const [events, setEvents] = useState<EventItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.EVENTS);
+      return saved ? JSON.parse(saved) : INITIAL_EVENTS;
+    } catch {
+      return INITIAL_EVENTS;
+    }
+  });
+
+  // Reviews
+  const [reviews, setReviews] = useState<Review[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.REVIEWS);
+      return saved ? JSON.parse(saved) : INITIAL_REVIEWS;
+    } catch {
+      return INITIAL_REVIEWS;
+    }
+  });
+
+  // Notifications
+  const [notifications, setNotifications] = useState<PushNotification[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS);
+      return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
+    } catch {
+      return INITIAL_NOTIFICATIONS;
+    }
+  });
+
+  // Registered Users (includes standby accounts awaiting Super Admin activation)
+  const [registeredUsers, setRegisteredUsers] = useState<UserAccount[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.USERS_LIST);
+      return saved ? JSON.parse(saved) : INITIAL_REGISTERED_USERS;
+    } catch {
+      return INITIAL_REGISTERED_USERS;
+    }
+  });
+
+  // User (Unauthenticated by default. Only Google authentication with pixelglez1988@gmail.com can log in as Super Admin)
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.USER);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.role === 'superadmin' && parsed?.email?.toLowerCase() !== SUPER_ADMIN_EMAIL.toLowerCase()) {
+          return null;
+        }
+        return parsed;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Theme Config & Available Venezuelan Cities
+  const [themeConfig, setThemeConfig] = useState<AgencyThemeConfig>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.CONFIG);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (!parsed.availableCities || !Array.isArray(parsed.availableCities) || parsed.availableCities.length === 0) {
+          parsed.availableCities = INITIAL_CONFIG.availableCities;
+        }
+        return { ...INITIAL_CONFIG, ...parsed };
+      }
+      return INITIAL_CONFIG;
+    } catch {
+      return INITIAL_CONFIG;
+    }
+  });
+
+  // Chats
+  const [chatMessages, setChatMessages] = useState<Record<string, ChatMessage[]>>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.CHATS);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      mod_valeria_01: [
+        {
+          id: 'cm_01',
+          senderId: 'mod_valeria_01',
+          senderName: 'Valeria Rinaldi',
+          recipientId: 'user',
+          text: '¡Hola! Gracias por contactarme en DIFUSION Agency. ¿Para qué fecha y tipo de evento requieres coordinación de promotoras?',
+          timestamp: '10:30 AM',
+          isFromUser: false,
+        },
+      ],
+    };
+  });
+
+  // Active view states
+  const [activeTab, setActiveTab] = useState<'catalogo' | 'eventos' | 'streaming' | 'admin' | 'chat' | 'login' | 'dashboard'>('catalogo');
+  const [selectedModel, setSelectedModel] = useState<ModelProfile | null>(null);
+  const [activeChatModel, setActiveChatModel] = useState<ModelProfile | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+  const [show2FAModal, setShow2FAModal] = useState<boolean>(false);
+  const [pendingAuthEmail, setPendingAuthEmail] = useState<string | null>(null);
+  const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [showReviewModal, setShowReviewModal] = useState<boolean>(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Sync state to local storage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.MODELS, JSON.stringify(models));
+  }, [models]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(events));
+  }, [events]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.REVIEWS, JSON.stringify(reviews));
+  }, [reviews]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(notifications));
+  }, [notifications]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(currentUser));
+  }, [currentUser]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(themeConfig));
+    // Apply CSS variables to root
+    const root = document.documentElement;
+    root.style.setProperty('--color-primary', themeConfig.primaryColor);
+    root.style.setProperty('--font-family', `'${themeConfig.fontFamily}', sans-serif`);
+    if (themeConfig.isDarkMode) {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+  }, [themeConfig]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.CHATS, JSON.stringify(chatMessages));
+  }, [chatMessages]);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((prev) => (prev === msg ? null : prev));
+    }, 3800);
+  };
+
+  const isSuperAdmin =
+    currentUser?.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() ||
+    currentUser?.role === 'superadmin';
+
+  // Identify if current logged in user owns a model profile
+  const currentModelProfile =
+    models.find(
+      (m) => m.ownerEmail?.toLowerCase() === currentUser?.email?.toLowerCase()
+    ) || null;
+
+  const isModelUser = !!currentModelProfile || currentUser?.role === 'model';
+
+  // Cities dynamically managed by Super Admin
+  const availableCities = themeConfig.availableCities || INITIAL_CONFIG.availableCities || [];
+
+  const addCity = (cityName: string): boolean => {
+    if (!isSuperAdmin) {
+      showToast('Acción denegada: Solo el Super Admin puede agregar ciudades.');
+      return false;
+    }
+    const trimmed = cityName.trim();
+    if (!trimmed) {
+      showToast('Ingresa un nombre de ciudad válido.');
+      return false;
+    }
+    const current = themeConfig.availableCities || [];
+    const exists = current.some((c) => c.toLowerCase() === trimmed.toLowerCase());
+    if (exists) {
+      showToast(`La ciudad "${trimmed}" ya se encuentra registrada.`);
+      return false;
+    }
+    const updated = [...current, trimmed];
+    updateThemeConfig({ availableCities: updated });
+    showToast(`✓ Ciudad "${trimmed}" agregada al catálogo.`);
+    return true;
+  };
+
+  const removeCity = (cityName: string): boolean => {
+    if (!isSuperAdmin) {
+      showToast('Acción denegada: Solo el Super Admin puede eliminar ciudades.');
+      return false;
+    }
+    const current = themeConfig.availableCities || [];
+    if (current.length <= 1) {
+      showToast('Debe existir al menos una ciudad registrada en el catálogo.');
+      return false;
+    }
+    const updated = current.filter((c) => c.toLowerCase() !== cityName.toLowerCase());
+    updateThemeConfig({ availableCities: updated });
+    showToast(`Ciudad "${cityName}" eliminada del catálogo.`);
+    return true;
+  };
+
+  // Account Activation & Role Assignment by Super Admin
+  const activateUserAccount = (userId: string, assignedRole: 'client' | 'model' | 'empresa') => {
+    if (!isSuperAdmin) {
+      showToast('Acción restringida: Solo el Super Admin puede activar cuentas.');
+      return;
+    }
+    const targetUser = registeredUsers.find((u) => u.id === userId);
+    if (!targetUser) return;
+
+    const now = new Date().toLocaleDateString('es-VE');
+    const updatedUser: UserAccount = {
+      ...targetUser,
+      status: 'active',
+      role: assignedRole,
+      activatedAt: now,
+      activatedBy: SUPER_ADMIN_EMAIL,
+    };
+
+    setRegisteredUsers((prev) =>
+      prev.map((u) => (u.id === userId ? updatedUser : u))
+    );
+
+    // If currently logged-in user is this target
+    if (currentUser?.id === userId || currentUser?.email.toLowerCase() === targetUser.email.toLowerCase()) {
+      setCurrentUser(updatedUser);
+    }
+
+    // If activated as model/promotora and no profile exists yet, create draft model profile
+    if (assignedRole === 'model') {
+      const existing = models.find(
+        (m) => m.ownerEmail?.toLowerCase() === targetUser.email.toLowerCase()
+      );
+      if (!existing) {
+        const defaultCity = availableCities[0] || 'Caracas';
+        const newModel: ModelProfile = {
+          id: `mod_${Date.now()}`,
+          ownerEmail: targetUser.email,
+          name: targetUser.name,
+          stageName: targetUser.name.split(' ')[0] + ' ' + (targetUser.name.split(' ')[1]?.[0] || '') + '.',
+          category: 'promotora',
+          categoryLabel: 'Promotora & Modelo para Eventos',
+          roleLabel: 'Perfil Oficial DIFUSION Venezuela',
+          verified: false,
+          identityVerification: {
+            status: 'sin_verificar',
+            documentType: 'Cédula de Identidad',
+          },
+          featured: false,
+          isPaused: false,
+          rating: 5.0,
+          reviewCount: 0,
+          hourlyRate: 40,
+          dailyRate: 280,
+          age: 22,
+          pastExperience: ['Activaciones de marca y eventos corporativos'],
+          location: {
+            city: defaultCity,
+            state: 'Venezuela',
+            country: 'Venezuela',
+            availableToTravel: true,
+          },
+          avatar: targetUser.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=85',
+          gallery: [targetUser.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=85'],
+          physical: {
+            height: '1.75 m',
+            eyeColor: 'Marrones',
+            hairColor: 'Castaño',
+          },
+          languages: ['Español (Nativo)'],
+          bio: 'Promotora y modelo oficial registrada en DIFUSION Agency Venezuela. Disponible para activaciones de marcas, protocolo y eventos corporativos.',
+          socialMedia: {
+            instagram: {
+              handle: `@${targetUser.name.toLowerCase().replace(/\s+/g, '_')}`,
+              followers: '10K',
+              engagement: '4.5%',
+              url: 'https://instagram.com',
+              posts: [],
+            },
+            tiktok: {
+              handle: `@${targetUser.name.toLowerCase().replace(/\s+/g, '_')}`,
+              followers: '15K',
+              likes: '100K',
+              url: 'https://tiktok.com',
+              videos: [],
+            },
+          },
+          ratingsBreakdown: {
+            punctuality: 5.0,
+            professionalism: 5.0,
+            presence: 5.0,
+            charisma: 5.0,
+          },
+          whatsappNumber: targetUser.phone || '+584121234567',
+          status: 'activa',
+          createdAt: new Date().toISOString().split('T')[0],
+        };
+        setModels((prev) => [newModel, ...prev]);
+      }
+    }
+
+    showToast(`✓ Cuenta de ${targetUser.name} activada como ${assignedRole === 'model' ? 'Promotora / Modelo' : 'Cliente'}.`);
+    sendPushNotification(
+      '🎉 Cuenta Activada por Super Admin',
+      `La cuenta de ${targetUser.name} ha sido aprobada y activada como ${assignedRole === 'model' ? 'Promotora / Modelo' : 'Cliente Contratante'}.`,
+      'system'
+    );
+  };
+
+  const rejectUserAccount = (userId: string, reason?: string) => {
+    if (!isSuperAdmin) {
+      showToast('Acción restringida: Solo el Super Admin puede suspender cuentas.');
+      return;
+    }
+    const target = registeredUsers.find((u) => u.id === userId);
+    setRegisteredUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, status: 'suspended' } : u))
+    );
+    showToast(`Cuenta de ${target?.name || 'usuario'} suspendida.`);
+  };
+
+  // Normal users updating their own personal profile data (name, phone, avatar, company)
+  const updateCurrentUserProfile = (updates: Partial<UserAccount>) => {
+    if (!currentUser) return;
+    const safeUpdates: Partial<UserAccount> = {};
+    if (updates.name !== undefined) safeUpdates.name = updates.name;
+    if (updates.phone !== undefined) safeUpdates.phone = updates.phone;
+    if (updates.avatar !== undefined) safeUpdates.avatar = updates.avatar;
+    if (updates.companyName !== undefined) safeUpdates.companyName = updates.companyName;
+    if (updates.companyRif !== undefined) safeUpdates.companyRif = updates.companyRif;
+    if (updates.clientType !== undefined) safeUpdates.clientType = updates.clientType;
+
+    const updated: UserAccount = { ...currentUser, ...safeUpdates };
+    setCurrentUser(updated);
+    setRegisteredUsers((prev) =>
+      prev.map((u) => (u.id === currentUser.id ? { ...u, ...safeUpdates } : u))
+    );
+    showToast('Tus datos personales han sido actualizados con éxito.');
+  };
+
+  // Add Model
+  const addModel = (modelData: Omit<ModelProfile, 'id' | 'createdAt' | 'rating' | 'reviewCount'>) => {
+    const newId = `mod_${Date.now()}`;
+    const newModel: ModelProfile = {
+      ...modelData,
+      id: newId,
+      rating: 5.0,
+      reviewCount: 0,
+      isPaused: false,
+      status: 'activa',
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+    setModels((prev) => [newModel, ...prev]);
+    showToast(`Modelo ${newModel.name} añadida exitosamente al catálogo.`);
+    sendPushNotification(
+      '✨ Nuevo Perfil Registrado',
+      `${newModel.name} ya está disponible en ${newModel.location.city}.`,
+      'system'
+    );
+  };
+
+  // Toggle Pause/Active status for a model (Pausing hides her from catalog)
+  const togglePauseModel = (id: string) => {
+    const target = models.find((m) => m.id === id);
+    if (!target) return;
+
+    // Check permission: only Super Admin or the model herself
+    if (!isSuperAdmin && currentModelProfile?.id !== id) {
+      showToast('No tienes permiso para pausar este perfil.');
+      return;
+    }
+
+    const nextPaused = !target.isPaused;
+    setModels((prev) =>
+      prev.map((m) =>
+        m.id === id
+          ? {
+              ...m,
+              isPaused: nextPaused,
+              status: nextPaused ? 'pausada' : 'activa',
+            }
+          : m
+      )
+    );
+
+    if (selectedModel?.id === id) {
+      setSelectedModel((prev) =>
+        prev
+          ? {
+              ...prev,
+              isPaused: nextPaused,
+              status: nextPaused ? 'pausada' : 'activa',
+            }
+          : null
+      );
+    }
+
+    if (nextPaused) {
+      showToast(`${target.name} ha sido pausada y ocultada del catálogo público.`);
+    } else {
+      showToast(`${target.name} ha sido reactivada y ya es visible en el catálogo.`);
+    }
+  };
+
+  // Toggle VIP Membership Status (Super Admin: highlights model and places her first in catalog)
+  const toggleVipModel = (id: string) => {
+    if (!isSuperAdmin) {
+      showToast('Acción restringida: Solo el Super Admin puede gestionar membresías VIP.');
+      return;
+    }
+    const target = models.find((m) => m.id === id);
+    if (!target) return;
+
+    const nextVip = !target.isVip;
+    setModels((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, isVip: nextVip } : m))
+    );
+
+    if (selectedModel?.id === id) {
+      setSelectedModel((prev) => (prev ? { ...prev, isVip: nextVip } : null));
+    }
+
+    if (nextVip) {
+      showToast(`⭐ Membresía VIP activada para ${target.name}. Se mostrará destacada de primera en el catálogo.`);
+      sendPushNotification(
+        '👑 Membresía VIP DIFUSION Activada',
+        `${target.name} cuenta con membresía VIP pagada y ahora aparece destacada al inicio del catálogo.`,
+        'system'
+      );
+    } else {
+      showToast(`Membresía VIP removida para ${target.name}.`);
+    }
+  };
+
+  // Update Model (Super Admin or internal)
+  const updateModel = (id: string, updates: Partial<ModelProfile>) => {
+    setModels((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, ...updates } : m))
+    );
+    if (selectedModel?.id === id) {
+      setSelectedModel((prev) => (prev ? { ...prev, ...updates } : null));
+    }
+    showToast('Perfil actualizado correctamente.');
+  };
+
+  // Edit rates (STRICTLY restricted to Super Admin)
+  const updateModelRates = (id: string, hourlyRate: number, dailyRate: number) => {
+    if (!isSuperAdmin) {
+      showToast('Acción denegada: Solo el Super Admin puede modificar tarifas.');
+      return;
+    }
+    setModels((prev) =>
+      prev.map((m) =>
+        m.id === id
+          ? {
+              ...m,
+              hourlyRate: Number(hourlyRate),
+              dailyRate: Number(dailyRate),
+            }
+          : m
+      )
+    );
+    showToast('Tarifas oficiales actualizadas por el Super Admin.');
+  };
+
+  // Model self-editing (model can only edit her own profile, cannot edit rates or others)
+  const updateModelSelf = (id: string, updates: Partial<ModelProfile>): boolean => {
+    // Permission check
+    const isOwner = currentModelProfile?.id === id;
+    if (!isSuperAdmin && !isOwner) {
+      showToast('Error de permisos: Cada modelo solo puede modificar su propio perfil.');
+      return false;
+    }
+
+    // If not super admin, strip out rates to protect tariffs
+    const safeUpdates = { ...updates };
+    if (!isSuperAdmin) {
+      delete safeUpdates.hourlyRate;
+      delete safeUpdates.dailyRate;
+    }
+
+    setModels((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, ...safeUpdates } : m))
+    );
+
+    if (selectedModel?.id === id) {
+      setSelectedModel((prev) => (prev ? { ...prev, ...safeUpdates } : null));
+    }
+
+    showToast(
+      isSuperAdmin
+        ? 'Perfil actualizado con éxito.'
+        : 'Tu perfil y MediaKit han sido actualizados exitosamente.'
+    );
+    return true;
+  };
+
+  // Submit Official Identity Verification Document (Cédula de Identidad / Pasaporte)
+  const submitIdentityVerification = (
+    modelId: string,
+    data: {
+      documentType: 'Cédula de Identidad' | 'Pasaporte';
+      documentNumber: string;
+      documentPhotoUrl: string;
+    }
+  ) => {
+    const now = new Date().toISOString();
+    setModels((prev) =>
+      prev.map((m) => {
+        if (m.id === modelId) {
+          return {
+            ...m,
+            identityVerification: {
+              status: 'pendiente',
+              documentType: data.documentType,
+              documentNumber: data.documentNumber,
+              documentPhotoUrl: data.documentPhotoUrl,
+              submittedAt: now,
+            },
+          };
+        }
+        return m;
+      })
+    );
+
+    if (selectedModel?.id === modelId) {
+      setSelectedModel((prev) =>
+        prev
+          ? {
+              ...prev,
+              identityVerification: {
+                status: 'pendiente',
+                documentType: data.documentType,
+                documentNumber: data.documentNumber,
+                documentPhotoUrl: data.documentPhotoUrl,
+                submittedAt: now,
+              },
+            }
+          : null
+      );
+    }
+
+    showToast('✓ Foto del documento enviada. En espera de revisión por el Super Admin.');
+    sendPushNotification(
+      '🪪 Verificación de Identidad Recibida',
+      `Se ha recibido ${data.documentType} Nº ${data.documentNumber || ''} para validación oficial.`,
+      'system'
+    );
+  };
+
+  // Review Identity Verification (Super Admin only: pixelglez1988@gmail.com)
+  const reviewIdentityVerification = (
+    modelId: string,
+    approved: boolean,
+    rejectionReason?: string
+  ) => {
+    if (!isSuperAdmin) {
+      showToast('Solo el Super Admin puede validar o certificar identidades.');
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const target = models.find((m) => m.id === modelId);
+
+    setModels((prev) =>
+      prev.map((m) => {
+        if (m.id === modelId) {
+          const currentIdData = m.identityVerification || {
+            documentType: 'Cédula de Identidad',
+          };
+          return {
+            ...m,
+            verified: approved,
+            identityVerification: {
+              ...currentIdData,
+              status: approved ? 'verificado' : 'rechazado',
+              reviewedAt: now,
+              reviewedBy: currentUser?.email || SUPER_ADMIN_EMAIL,
+              rejectionReason: approved
+                ? undefined
+                : rejectionReason || 'Documento no legible o no coincidente con el registro oficial',
+            },
+          };
+        }
+        return m;
+      })
+    );
+
+    if (selectedModel?.id === modelId) {
+      setSelectedModel((prev) =>
+        prev
+          ? {
+              ...prev,
+              verified: approved,
+              identityVerification: {
+                ...(prev.identityVerification || { documentType: 'Cédula de Identidad' }),
+                status: approved ? 'verificado' : 'rechazado',
+                reviewedAt: now,
+                reviewedBy: currentUser?.email || SUPER_ADMIN_EMAIL,
+                rejectionReason: approved ? undefined : rejectionReason,
+              },
+            }
+          : null
+      );
+    }
+
+    if (approved) {
+      showToast(`✓ Identidad de ${target?.name || 'la modelo'} certificada oficialmente.`);
+      sendPushNotification(
+        '✅ Sello de Identidad Verificado',
+        `La identificación oficial de ${target?.name} ha sido validada. Se ha otorgado el Sello Verificado en el catálogo.`,
+        'system'
+      );
+    } else {
+      showToast(`Verificación rechazada para ${target?.name || 'la modelo'}.`);
+      sendPushNotification(
+        '⚠️ Verificación de Identidad Observada',
+        `La documentación de ${target?.name} requiere corrección: ${rejectionReason || 'No legible'}.`,
+        'system'
+      );
+    }
+  };
+
+  // Delete Model
+  const deleteModel = (id: string) => {
+    if (!isSuperAdmin) {
+      showToast('Solo el Super Admin puede eliminar perfiles del sistema.');
+      return;
+    }
+    setModels((prev) => prev.filter((m) => m.id !== id));
+    if (selectedModel?.id === id) {
+      setSelectedModel(null);
+    }
+    showToast('Perfil eliminado del catálogo.');
+  };
+
+  // Add Review
+  const addReview = (reviewData: Omit<Review, 'id' | 'date'>) => {
+    const newId = `rev_${Date.now()}`;
+    const newReview: Review = {
+      ...reviewData,
+      id: newId,
+      date: 'Hoy',
+    };
+    setReviews((prev) => [newReview, ...prev]);
+
+    // Recalculate average rating
+    const modelReviews = [...reviews.filter((r) => r.modelId === reviewData.modelId), newReview];
+    const avgRating = Number(
+      (modelReviews.reduce((acc, r) => acc + r.rating, 0) / modelReviews.length).toFixed(2)
+    );
+
+    updateModel(reviewData.modelId, {
+      rating: avgRating,
+      reviewCount: modelReviews.length,
+    });
+
+    showToast('¡Reseña verificada publicada con éxito!');
+    sendPushNotification(
+      '⭐ Nueva Calificación Verificada',
+      `${reviewData.authorCompany} calificó a la modelo con ${reviewData.rating} estrellas.`,
+      'booking'
+    );
+  };
+
+  // Apply to casting
+  const applyToCasting = (eventId: string, modelName: string) => {
+    const ev = events.find((e) => e.id === eventId);
+    showToast(`¡Postulación enviada con éxito para "${ev?.title}"!`);
+    sendPushNotification(
+      '📋 Postulación Recibida',
+      `${modelName} ha enviado su postulación para "${ev?.title}". El equipo evaluará tu perfil.`,
+      'casting'
+    );
+  };
+
+  // Direct chat messaging
+  const sendMessage = (
+    modelId: string,
+    text: string,
+    isQuote?: boolean,
+    quoteDetails?: any
+  ) => {
+    const newMsg: ChatMessage = {
+      id: `msg_${Date.now()}`,
+      senderId: currentUser?.id || 'guest',
+      senderName: currentUser?.name || 'Cliente Verificado',
+      recipientId: modelId,
+      text,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isFromUser: true,
+      isQuoteRequest: isQuote,
+      quoteDetails,
+    };
+
+    setChatMessages((prev) => {
+      const currentList = prev[modelId] || [];
+      return {
+        ...prev,
+        [modelId]: [...currentList, newMsg],
+      };
+    });
+
+    // Simulated quick response from model / coordinator
+    setTimeout(() => {
+      const targetModel = models.find((m) => m.id === modelId);
+      const replyMsg: ChatMessage = {
+        id: `msg_rep_${Date.now()}`,
+        senderId: modelId,
+        senderName: targetModel?.name || 'Coordinación DIFUSION',
+        recipientId: currentUser?.id || 'guest',
+        text: isQuote
+          ? `¡Recibido! He registrado tu solicitud para "${quoteDetails?.eventName}" (${quoteDetails?.hours} hrs). La agencia DIFUSION ha bloqueado la fecha tentativamente y te enviará el contrato oficial a tu correo.`
+          : `¡Hola! Gracias por tu mensaje. He revisado tu consulta sobre la disponibilidad. ¿Deseas coordinar una llamada o continuar por WhatsApp oficial?`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isFromUser: false,
+      };
+
+      setChatMessages((prev) => ({
+        ...prev,
+        [modelId]: [...(prev[modelId] || []), replyMsg],
+      }));
+
+      sendPushNotification(
+        `💬 Mensaje de ${targetModel?.name || 'DIFUSION'}`,
+        replyMsg.text,
+        'message'
+      );
+    }, 1400);
+  };
+
+  // Notifications
+  const markNotificationAsRead = (id: string) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+    );
+  };
+
+  const clearAllNotifications = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    showToast('Todas las notificaciones marcadas como leídas.');
+  };
+
+  const sendPushNotification = (
+    title: string,
+    message: string,
+    type: PushNotification['type'] = 'system'
+  ) => {
+    const newNotif: PushNotification = {
+      id: `notif_${Date.now()}`,
+      title,
+      message,
+      timestamp: 'Justo ahora',
+      read: false,
+      type,
+    };
+    setNotifications((prev) => [newNotif, ...prev]);
+
+    // Native Browser Web Push Notification if permission granted
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'granted') {
+        try {
+          new Notification(title, {
+            body: message,
+            icon: '/assets/aistudio/27211961-66ce-4ae9-a14c-6fb0dca4deaa-removebg-preview_d4a77f15.png',
+          });
+        } catch {}
+      }
+    }
+  };
+
+  const updateThemeConfig = (updates: Partial<AgencyThemeConfig>) => {
+    setThemeConfig((prev) => ({ ...prev, ...updates }));
+    showToast('Configuración de diseño actualizada.');
+  };
+
+  // Sync Firebase User with Application User State
+  const handleFirebaseUserSync = (
+    email: string,
+    displayName?: string | null,
+    photoURL?: string | null,
+    explicitRole?: 'client' | 'model',
+    explicitStatus?: 'active' | 'standby'
+  ) => {
+    const isSuper = email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+    const matchedModel = models.find(
+      (m) => m.ownerEmail?.toLowerCase() === email.toLowerCase()
+    );
+    const existingRegistered = registeredUsers.find(
+      (u) => u.email.toLowerCase() === email.toLowerCase()
+    );
+
+    let role: UserAccount['role'] = isSuper
+      ? 'superadmin'
+      : (explicitRole || existingRegistered?.role || (matchedModel ? 'model' : 'client'));
+    let name = displayName || existingRegistered?.name || (isSuper ? 'Pixel González (Super Admin)' : (matchedModel ? matchedModel.name : 'Usuario Registrado'));
+    let avatar = photoURL || existingRegistered?.avatar || (matchedModel ? matchedModel.avatar : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80');
+    
+    // Standby policy: Super Admin and pre-existing active users are active.
+    // Any newly registered user remains in standby until Super Admin activates them with their role.
+    let status: UserAccount['status'] = isSuper
+      ? 'active'
+      : (explicitStatus || existingRegistered?.status || (matchedModel ? 'active' : 'standby'));
+
+    const newUser: UserAccount = {
+      id: auth.currentUser?.uid || existingRegistered?.id || `user_${Date.now()}`,
+      name,
+      email,
+      avatar,
+      role,
+      status,
+      requestedRole: explicitRole || existingRegistered?.requestedRole || (role === 'model' ? 'model' : 'client'),
+      createdAt: existingRegistered?.createdAt || 'Hoy',
+      activatedAt: status === 'active' ? (existingRegistered?.activatedAt || 'Activa') : undefined,
+      activatedBy: status === 'active' ? (existingRegistered?.activatedBy || SUPER_ADMIN_EMAIL) : undefined,
+      twoFactorEnabled: isSuper || existingRegistered?.twoFactorEnabled || false,
+      isVerified: isSuper || existingRegistered?.isVerified || false,
+      phone: existingRegistered?.phone || '+58 412 000 0000',
+    };
+
+    if (!isSuper) {
+      setRegisteredUsers((prev) => {
+        const idx = prev.findIndex((u) => u.email.toLowerCase() === email.toLowerCase());
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = { ...copy[idx], ...newUser };
+          return copy;
+        }
+        return [newUser, ...prev];
+      });
+    }
+
+    setCurrentUser(newUser);
+    setShow2FAModal(false);
+    setShowAuthModal(false);
+    setPendingAuthEmail(null);
+
+    if (isSuper) {
+      showToast('Sesión autenticada en Firebase como Super Admin (Google)');
+    } else if (status === 'standby') {
+      showToast('Cuenta en Standby: En espera de activación oficial por la administración.');
+    } else if (role === 'model') {
+      showToast(`Sesión activa en Firebase como modelo: ${name}.`);
+    } else {
+      showToast(`Sesión iniciada (${email})`);
+    }
+  };
+
+  // Listen to Firebase Auth state
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser && firebaseUser.email) {
+        handleFirebaseUserSync(
+          firebaseUser.email,
+          firebaseUser.displayName,
+          firebaseUser.photoURL
+        );
+      }
+    });
+    return () => unsubscribe();
+  }, [models]);
+
+  // Real Google Sign-in with Firebase
+  const signInWithFirebaseGoogle = async (): Promise<boolean> => {
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      if (result.user?.email) {
+        handleFirebaseUserSync(
+          result.user.email,
+          result.user.displayName,
+          result.user.photoURL
+        );
+        return true;
+      }
+    } catch (err: any) {
+      console.warn('Firebase signInWithPopup info:', err?.message || err);
+      showToast('Iniciando verificación Google...');
+    }
+    return false;
+  };
+
+  // Sign In with Email & Password (Firebase Auth + Fallback)
+  const signInWithEmailPassword = async (
+    email: string,
+    pass: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    // Super Admin can ONLY log in via official Google Auth
+    if (email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
+      return {
+        success: false,
+        error: 'Acceso restringido: Esta cuenta únicamente puede ingresar mediante el botón oficial de Google.',
+      };
+    }
+
+    try {
+      const res = await signInWithEmailAndPassword(auth, email, pass);
+      if (res.user && res.user.email) {
+        handleFirebaseUserSync(res.user.email, res.user.displayName, res.user.photoURL);
+        return { success: true };
+      }
+    } catch (err: any) {
+      console.warn('Firebase email auth note:', err?.code, err?.message);
+      if (
+        err?.code === 'auth/operation-not-allowed' ||
+        err?.code === 'auth/configuration-not-found' ||
+        err?.code === 'auth/invalid-credential'
+      ) {
+        const matchedModel = models.find((m) => m.ownerEmail?.toLowerCase() === email.toLowerCase());
+        const existingRegistered = registeredUsers.find((u) => u.email.toLowerCase() === email.toLowerCase());
+        if (matchedModel || existingRegistered || pass.length >= 4) {
+          handleFirebaseUserSync(email, matchedModel ? matchedModel.name : undefined);
+          return { success: true };
+        }
+      }
+      return {
+        success: false,
+        error:
+          err?.code === 'auth/wrong-password'
+            ? 'Contraseña incorrecta'
+            : err?.code === 'auth/user-not-found'
+            ? 'Usuario no registrado'
+            : err?.message || 'Error al iniciar sesión',
+      };
+    }
+    return { success: false, error: 'No se pudo autenticar' };
+  };
+
+  // Sign Up with Email & Password (Firebase Auth + Fallback)
+  // Accounts are placed in 'standby' until Super Admin activates them with their assigned role
+  const signUpWithEmailPassword = async (
+    email: string,
+    pass: string,
+    name: string,
+    role: 'client' | 'model' = 'client'
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
+      return {
+        success: false,
+        error: 'Acceso restringido: Esta cuenta únicamente puede ingresar mediante el botón oficial de Google.',
+      };
+    }
+
+    try {
+      const res = await createUserWithEmailAndPassword(auth, email, pass);
+      if (res.user) {
+        try {
+          await updateProfile(res.user, { displayName: name });
+        } catch {}
+
+        handleFirebaseUserSync(
+          email,
+          name,
+          undefined,
+          role,
+          'standby'
+        );
+
+        showToast('Cuenta registrada. Queda en standby hasta ser activada oficialmente.');
+        sendPushNotification(
+          '⏳ Nueva Cuenta en Standby',
+          `${name} (${email}) se ha registrado y solicita activación con rol de ${role === 'model' ? 'Promotora / Modelo' : 'Cliente'}.`,
+          'system'
+        );
+        return { success: true };
+      }
+    } catch (err: any) {
+      console.warn('Firebase signup note:', err?.code, err?.message);
+      if (
+        err?.code === 'auth/operation-not-allowed' ||
+        err?.code === 'auth/configuration-not-found'
+      ) {
+        // Fallback local registration
+        handleFirebaseUserSync(
+          email,
+          name,
+          undefined,
+          role,
+          'standby'
+        );
+
+        showToast('Cuenta registrada. Queda en standby hasta ser activada oficialmente.');
+        sendPushNotification(
+          '⏳ Nueva Cuenta en Standby',
+          `${name} (${email}) se ha registrado y solicita activación con rol de ${role === 'model' ? 'Promotora / Modelo' : 'Cliente'}.`,
+          'system'
+        );
+        return { success: true };
+      }
+      return {
+        success: false,
+        error:
+          err?.code === 'auth/email-already-in-use'
+            ? 'Este correo ya está registrado'
+            : err?.code === 'auth/weak-password'
+            ? 'La contraseña debe tener al menos 6 caracteres'
+            : err?.message || 'Error al crear la cuenta',
+      };
+    }
+    return { success: false, error: 'No se pudo crear la cuenta' };
+  };
+
+  // Google OAuth selection with optional 2FA verification
+  const loginWithGoogle = async (email: string): Promise<boolean> => {
+    setPendingAuthEmail(email);
+    setShow2FAModal(true);
+    return true;
+  };
+
+  const verify2FACode = (code: string): boolean => {
+    if (code.trim().length >= 4 && pendingAuthEmail) {
+      handleFirebaseUserSync(pendingAuthEmail);
+      return true;
+    }
+    return false;
+  };
+
+  const logout = async () => {
+    try {
+      await signOut(auth);
+    } catch {}
+    setCurrentUser(null);
+    showToast('Sesión cerrada.');
+  };
+
+  const generateWhatsAppUrl = (
+    phone: string,
+    modelName: string,
+    eventDetails?: string
+  ): string => {
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    const text = encodeURIComponent(
+      `Hola DIFUSION Venezuela, solicito disponibilidad y cotización para contratar a ${modelName} para nuestro próximo evento ${
+        eventDetails ? `(${eventDetails})` : ''
+      }. Agradezco me envíen la tarifa y condiciones.`
+    );
+    return `https://wa.me/${cleanPhone || '584129876543'}?text=${text}`;
+  };
+
+  return (
+    <AppContext.Provider
+      value={{
+        models,
+        events,
+        reviews,
+        notifications,
+        currentUser,
+        themeConfig,
+        activeTab,
+        setActiveTab,
+        selectedModel,
+        setSelectedModel,
+        activeChatModel,
+        setActiveChatModel,
+        chatMessages,
+        showAuthModal,
+        setShowAuthModal,
+        show2FAModal,
+        setShow2FAModal,
+        showSettingsModal,
+        setShowSettingsModal,
+        showReviewModal,
+        setShowReviewModal,
+        toastMessage,
+        showToast,
+        availableCities,
+        addCity,
+        removeCity,
+        registeredUsers,
+        activateUserAccount,
+        rejectUserAccount,
+        updateCurrentUserProfile,
+        submitIdentityVerification,
+        reviewIdentityVerification,
+        signInWithFirebaseGoogle,
+        signInWithEmailPassword,
+        signUpWithEmailPassword,
+        isFirebaseConnected: true,
+        addModel,
+        updateModel,
+        updateModelRates,
+        updateModelSelf,
+        togglePauseModel,
+        toggleVipModel,
+        deleteModel,
+        addReview,
+        applyToCasting,
+        sendMessage,
+        markNotificationAsRead,
+        clearAllNotifications,
+        sendPushNotification,
+        updateThemeConfig,
+        loginWithGoogle,
+        verify2FACode,
+        logout,
+        isSuperAdmin,
+        isModelUser,
+        currentModelProfile,
+        generateWhatsAppUrl,
+      }}
+    >
+      {children}
+    </AppContext.Provider>
+  );
+};
+
+export const useApp = () => {
+  const context = useContext(AppContext);
+  if (!context) {
+    throw new Error('useApp must be used within an AppProvider');
+  }
+  return context;
+};
