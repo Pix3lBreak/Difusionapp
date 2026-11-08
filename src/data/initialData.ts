@@ -921,10 +921,10 @@ export const INITIAL_WALL_POSTS: WallPost[] = [
       {
         id: 'comm_02',
         postId: 'post_vzla_01',
-        authorId: 'superadmin_pixel',
-        authorName: 'Pixel González (Super Admin)',
+        authorId: 'difusion_agency_official',
+        authorName: 'DIFUSION Agency (Staff Oficial)',
         authorAvatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=250&q=80',
-        authorRole: 'superadmin',
+        authorRole: 'empresa',
         text: 'Excelente desempeño profesional. Perfil 100% verificado y recomendado en Caracas.',
         createdAt: 'Hace 45 minutos',
       },

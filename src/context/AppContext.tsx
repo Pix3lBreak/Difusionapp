@@ -503,7 +503,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const isSuperAdmin =
-    currentUser?.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() ||
+    currentUser?.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() &&
     currentUser?.role === 'superadmin';
 
   // Identify if current logged in user owns a model profile
@@ -1530,9 +1530,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       (u) => u.email.toLowerCase() === email.toLowerCase()
     );
 
-    let role: UserAccount['role'] = isSuper
-      ? 'superadmin'
-      : (explicitRole || existingRegistered?.role || (matchedModel ? 'model' : 'client'));
+    // STRICT ROLE FUSION: Only pixelglez1988@gmail.com can ever receive superadmin role.
+    let role: UserAccount['role'];
+    if (isSuper) {
+      role = 'superadmin';
+    } else {
+      let candidate = explicitRole || existingRegistered?.role || (matchedModel ? 'model' : 'client');
+      if (candidate === 'superadmin') {
+        candidate = 'client';
+      }
+      role = candidate;
+    }
+
     let name = displayName || existingRegistered?.name || (isSuper ? 'Pixel González (Super Admin)' : (matchedModel ? matchedModel.name : 'Usuario Registrado'));
     let avatar = photoURL || existingRegistered?.avatar || (matchedModel ? matchedModel.avatar : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80');
     
@@ -1561,14 +1570,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const requestedRole: 'model' | 'client' | 'empresa' | undefined =
       existingRegistered?.requestedRole || explicitRole || undefined;
 
+    const assignedFinalRole: UserAccount['role'] = isSuper
+      ? 'superadmin'
+      : (existingRegistered?.role && existingRegistered.role !== 'superadmin'
+          ? existingRegistered.role
+          : (requestedRole ? (requestedRole === 'empresa' ? 'empresa' : requestedRole === 'model' ? 'model' : 'client') : role));
+
     const newUser: UserAccount = {
       id: auth.currentUser?.uid || existingRegistered?.id || `user_${Date.now()}`,
       name,
       email,
       avatar,
-      role: existingRegistered?.role || (requestedRole ? (requestedRole === 'empresa' ? 'empresa' : requestedRole === 'model' ? 'model' : 'client') : role),
+      role: assignedFinalRole,
       status,
-      requestedRole,
+      requestedRole: isSuper ? undefined : requestedRole,
       clientType: (requestedRole === 'empresa' || role === 'empresa' || explicitRole === 'empresa' || existingRegistered?.clientType === 'empresa') ? 'empresa' : 'particular',
       companyName: extraData?.companyName || existingRegistered?.companyName,
       companyRif: extraData?.companyRif || existingRegistered?.companyRif,
@@ -1750,6 +1765,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           };
         }
 
+        if (userEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
+          setPendingAuthEmail(userEmail);
+          setShow2FAModal(true);
+          showToast('Introduce tu código 2FA para verificar acceso de Super Admin.');
+          return { success: true };
+        }
+
         handleFirebaseUserSync(
           result.user.email,
           result.user.displayName,
@@ -1767,14 +1789,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         err?.code === 'auth/popup-closed-by-user' ||
         err?.code === 'auth/cancelled-popup-request' ||
         err?.code === 'auth/unauthorized-domain' ||
+        err?.code === 'auth/operation-not-allowed' ||
+        err?.code === 'auth/internal-error' ||
         !err?.code;
 
       return {
         success: false,
         error: isBlocked
-          ? 'El navegador móvil bloqueó o cerró la ventana emergente de Google.'
+          ? 'El navegador móvil cerró o bloqueó la ventana emergente de Google.'
           : (err?.message || 'Error al conectar con Google.'),
-        isPopupBlocked: isBlocked,
+        isPopupBlocked: true,
       };
     }
     return { success: false, error: 'No se completó la autenticación con Google.' };

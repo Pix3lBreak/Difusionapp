@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   X,
@@ -6,6 +6,9 @@ import {
   Lock,
   Smartphone,
   Sparkles,
+  AlertCircle,
+  Mail,
+  CheckCircle,
 } from 'lucide-react';
 
 export const GoogleAuthModal: React.FC = () => {
@@ -20,41 +23,87 @@ export const GoogleAuthModal: React.FC = () => {
 
   const [selectedRole, setSelectedRole] = useState<'client' | 'empresa' | 'model'>('client');
   const [twoFactorInput, setTwoFactorInput] = useState('');
+  const [twoFactorError, setTwoFactorError] = useState<string | null>(null);
   const [isFirebaseLoading, setIsFirebaseLoading] = useState(false);
-  const [showMobileDirect, setShowMobileDirect] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [directGoogleEmail, setDirectGoogleEmail] = useState('');
+
+  // Detect mobile device environment to ensure popup block resilience
+  const isMobile =
+    typeof navigator !== 'undefined' &&
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+  const [showMobileDirect, setShowMobileDirect] = useState<boolean>(isMobile);
+
+  useEffect(() => {
+    if (isMobile) {
+      setShowMobileDirect(true);
+    }
+  }, [isMobile]);
 
   if (!showAuthModal && !show2FAModal) return null;
 
   const handleFirebasePopup = async () => {
     setIsFirebaseLoading(true);
+    setAuthError(null);
     const res = await signInWithFirebaseGoogle(undefined, selectedRole);
     setIsFirebaseLoading(false);
-    if (!res.success && res.isPopupBlocked) {
-      setShowMobileDirect(true);
+    if (!res.success) {
+      if (res.isPopupBlocked) {
+        setShowMobileDirect(true);
+        setAuthError(
+          'El navegador móvil cerró o bloqueó la ventana emergente. Por favor confirma tu correo de Google en la casilla inferior para ingresar sin interrupción:'
+        );
+      } else if (res.error) {
+        setAuthError(res.error);
+      }
     }
   };
 
   const handleDirectGoogleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!directGoogleEmail.trim()) return;
+    setAuthError(null);
+    const cleanEmail = directGoogleEmail.trim().toLowerCase();
+    if (!cleanEmail) {
+      setAuthError('Por favor introduce tu dirección de correo electrónico.');
+      return;
+    }
+    if (!cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      setAuthError('Por favor ingresa un formato de correo válido.');
+      return;
+    }
+
     setIsFirebaseLoading(true);
-    await signInWithFirebaseGoogle(directGoogleEmail.trim(), selectedRole);
+    const res = await signInWithFirebaseGoogle(cleanEmail, selectedRole);
     setIsFirebaseLoading(false);
+    if (!res.success && res.error) {
+      setAuthError(res.error);
+    }
   };
 
   const handleVerify2FA = (e: React.FormEvent) => {
     e.preventDefault();
-    verify2FACode(twoFactorInput);
+    setTwoFactorError(null);
+    if (!twoFactorInput.trim()) {
+      setTwoFactorError('Por favor introduce el código de verificación.');
+      return;
+    }
+    const verified = verify2FACode(twoFactorInput.trim());
+    if (!verified) {
+      setTwoFactorError('Código de seguridad inválido. Introduce un código válido.');
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
       {/* STEP 1: GOOGLE OAUTH MODAL */}
       {showAuthModal && !show2FAModal && (
-        <div className="w-full max-w-md rounded-3xl bg-zinc-950 border border-zinc-800 p-6 sm:p-8 shadow-2xl relative text-center">
+        <div className="w-full max-w-md rounded-3xl bg-zinc-950 border border-zinc-800 p-6 sm:p-8 shadow-2xl relative text-center my-6">
           <button
-            onClick={() => setShowAuthModal(false)}
+            onClick={() => {
+              setShowAuthModal(false);
+              setAuthError(null);
+            }}
             className="absolute top-4 right-4 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -130,6 +179,15 @@ export const GoogleAuthModal: React.FC = () => {
             </button>
           </div>
 
+          {/* Error Message Display */}
+          {authError && (
+            <div className="mb-4 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs text-left flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+              <div className="leading-relaxed">{authError}</div>
+            </div>
+          )}
+
+          {/* Primary Google Login Button */}
           <button
             onClick={handleFirebasePopup}
             disabled={isFirebaseLoading}
@@ -153,80 +211,48 @@ export const GoogleAuthModal: React.FC = () => {
                 d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
               />
             </svg>
-            <span>{isFirebaseLoading ? 'Conectando con Google...' : `Continuar como ${selectedRole === 'model' ? 'Promotora' : selectedRole === 'empresa' ? 'Empresa' : 'Cliente'}`}</span>
+            <span>
+              {isFirebaseLoading
+                ? 'Conectando con Google...'
+                : `Continuar con Google (${selectedRole === 'model' ? 'Promotora' : selectedRole === 'empresa' ? 'Empresa' : 'Cliente'})`}
+            </span>
           </button>
 
-          {/* Quick toggle for mobile direct access */}
-          <div className="mt-3 text-center">
-            <button
-              type="button"
-              onClick={() => setShowMobileDirect(!showMobileDirect)}
-              className="inline-flex items-center gap-1.5 text-[11px] text-zinc-400 hover:text-[var(--color-primary)] transition-colors underline"
-            >
-              <Smartphone className="w-3.5 h-3.5 text-[var(--color-primary)]" />
-              <span>
-                {showMobileDirect
-                  ? 'Ocultar acceso directo'
-                  : '¿En teléfono móvil o se cerró la ventana? Toca aquí'}
+          {/* Mobile Direct Section */}
+          <div className="mt-4 pt-3 border-t border-zinc-900">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold text-zinc-300 flex items-center gap-1.5">
+                <Smartphone className="w-3.5 h-3.5 text-[var(--color-primary)]" />
+                Acceso Móvil Optimizado
               </span>
-            </button>
-          </div>
+              <span className="text-[10px] text-[var(--color-primary)] font-semibold">
+                Sin ventana emergente
+              </span>
+            </div>
 
-          {/* Direct Mobile Google Card */}
-          {showMobileDirect && (
-            <div className="mt-4 p-4 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3 text-left">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-[var(--color-primary)]" />
-                  Acceso Directo Google (Móvil)
-                </span>
-                <span className="text-[10px] text-[var(--color-primary)] font-semibold">
-                  Sin ventanas emergentes
-                </span>
-              </div>
-
-              {/* Super Admin 1-click */}
-              <button
-                type="button"
-                onClick={() => {
-                  setDirectGoogleEmail('pixelglez1988@gmail.com');
-                  signInWithFirebaseGoogle('pixelglez1988@gmail.com');
-                }}
-                className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-700 hover:border-[var(--color-primary)] text-left flex items-center justify-between transition-colors group"
-              >
-                <div>
-                  <div className="text-xs font-bold text-white group-hover:text-[var(--color-primary)] flex items-center gap-1">
-                    <span>👑 Super Admin Google</span>
-                  </div>
-                  <div className="text-[10px] text-zinc-400 font-mono">pixelglez1988@gmail.com</div>
-                </div>
-                <span className="text-[10px] text-zinc-400 group-hover:text-white">Verificar con 2FA →</span>
-              </button>
-
-              <form onSubmit={handleDirectGoogleLogin} className="space-y-2 pt-2 border-t border-zinc-800">
-                <label className="block text-[11px] text-zinc-400 font-medium">
-                  O introduce tu correo @gmail.com:
-                </label>
+            <form onSubmit={handleDirectGoogleLogin} className="space-y-2 text-left">
+              <div className="relative">
+                <Mail className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-3" />
                 <input
                   type="email"
                   required
                   value={directGoogleEmail}
                   onChange={(e) => setDirectGoogleEmail(e.target.value)}
-                  placeholder="tu.correo@gmail.com"
-                  className="w-full px-3 py-2 rounded-xl bg-black border border-zinc-800 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-[var(--color-primary)]"
+                  placeholder="Introduce tu cuenta @gmail.com"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[var(--color-primary)] transition-colors"
                 />
-                <button
-                  type="submit"
-                  disabled={isFirebaseLoading}
-                  className="w-full py-2 rounded-xl bg-[var(--color-primary)] text-black font-bold text-xs hover:brightness-110 transition-all shadow-md"
-                >
-                  Ingresar con esta Cuenta Google
-                </button>
-              </form>
-            </div>
-          )}
+              </div>
+              <button
+                type="submit"
+                disabled={isFirebaseLoading}
+                className="w-full py-2.5 rounded-xl bg-[var(--color-primary)] text-black font-bold text-xs hover:brightness-110 transition-all shadow-md active:scale-98 disabled:opacity-50"
+              >
+                Ingresar Directo con esta Cuenta Google
+              </button>
+            </form>
+          </div>
 
-          <div className="mt-6 pt-4 border-t border-zinc-900 flex items-center justify-center gap-2 text-[11px] text-zinc-500">
+          <div className="mt-4 pt-3 border-t border-zinc-900 flex items-center justify-center gap-2 text-[11px] text-zinc-500">
             <ShieldCheck className="w-3.5 h-3.5 text-[var(--color-primary)]" />
             <span>Autenticación cifrada para proteger datos personales</span>
           </div>
@@ -235,9 +261,12 @@ export const GoogleAuthModal: React.FC = () => {
 
       {/* STEP 2: TWO-FACTOR AUTHENTICATION (2FA) CODE VERIFICATION */}
       {show2FAModal && (
-        <div className="w-full max-w-sm rounded-3xl bg-zinc-950 border border-zinc-800 p-6 shadow-2xl relative text-center">
+        <div className="w-full max-w-sm rounded-3xl bg-zinc-950 border border-zinc-800 p-6 shadow-2xl relative text-center my-6">
           <button
-            onClick={() => setShow2FAModal(false)}
+            onClick={() => {
+              setShow2FAModal(false);
+              setTwoFactorError(null);
+            }}
             className="absolute top-4 right-4 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800"
           >
             <X className="w-5 h-5" />
@@ -250,9 +279,15 @@ export const GoogleAuthModal: React.FC = () => {
           <h3 className="text-lg font-bold text-white mb-1">
             Verificación en Dos Pasos (2FA)
           </h3>
-          <p className="text-xs text-zinc-400 mb-6">
-            Introduce el código temporal generado por tu aplicación Authenticator o SMS de seguridad.
+          <p className="text-xs text-zinc-400 mb-4">
+            Introduce el código temporal generado por tu aplicación Authenticator para confirmar tu identidad.
           </p>
+
+          {twoFactorError && (
+            <div className="mb-3 p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
+              {twoFactorError}
+            </div>
+          )}
 
           <form onSubmit={handleVerify2FA} className="space-y-4">
             <div>

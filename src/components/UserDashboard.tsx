@@ -417,7 +417,8 @@ export const UserDashboard: React.FC = () => {
             </div>
             <div className="shrink-0 text-right sm:border-l sm:border-amber-500/30 sm:pl-4">
               <div className="text-[11px] text-amber-300/80">Atención Oficial</div>
-              <div className="text-xs font-mono font-bold text-white">pixelglez1988@gmail.com</div>
+              <div className="text-xs font-semibold text-white">Administración DIFUSION</div>
+              <div className="text-[10px] text-zinc-400 font-mono">contacto@difusion.agency</div>
             </div>
           </div>
         </div>

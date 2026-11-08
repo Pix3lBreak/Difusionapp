@@ -110,6 +110,10 @@ export const CatalogSection: React.FC<CatalogSectionProps> = ({
 
   // Filter models
   const filteredModels = models.filter((model) => {
+    // The Super Admin is private and fused exclusively with pixelglez1988@gmail.com - never listed as a hireable model
+    if (model.ownerEmail?.toLowerCase() === 'pixelglez1988@gmail.com') {
+      return false;
+    }
     // Exclude paused models from public catalog
     if (model.isPaused || model.status === 'pausada') {
       return false;

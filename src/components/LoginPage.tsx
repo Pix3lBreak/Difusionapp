@@ -446,27 +446,10 @@ export const LoginPage: React.FC = () => {
                 </span>
               </div>
 
-              {/* Quick Super Admin shortcut */}
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileGoogleEmail('pixelglez1988@gmail.com');
-                  signInWithFirebaseGoogle('pixelglez1988@gmail.com');
-                }}
-                className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-700 hover:border-[var(--color-primary)] text-left flex items-center justify-between transition-colors group"
-              >
-                <div>
-                  <div className="text-xs font-bold text-white group-hover:text-[var(--color-primary)] flex items-center gap-1">
-                    <span>👑 Super Admin Google</span>
-                  </div>
-                  <div className="text-[10px] text-zinc-400 font-mono">pixelglez1988@gmail.com</div>
-                </div>
-                <span className="text-[10px] text-zinc-400 group-hover:text-white">Verificar con 2FA →</span>
-              </button>
-
-              <form onSubmit={handleMobileGoogleSubmit} className="space-y-2 pt-2 border-t border-zinc-800">
+              {/* Mobile Google Direct Input */}
+              <form onSubmit={handleMobileGoogleSubmit} className="space-y-2">
                 <label className="block text-[11px] text-zinc-400 font-medium">
-                  O introduce tu correo @gmail.com:
+                  Introduce tu correo @gmail.com:
                 </label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-2.5 w-3.5 h-3.5 text-zinc-500" />
@@ -482,9 +465,9 @@ export const LoginPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full py-2 rounded-xl bg-[var(--color-primary)] text-black font-bold text-xs hover:brightness-110 transition-all shadow-md"
+                  className="w-full py-2.5 rounded-xl bg-[var(--color-primary)] text-black font-bold text-xs hover:brightness-110 transition-all shadow-md active:scale-98"
                 >
-                  {mode === 'signup' ? 'Crear Cuenta con Google' : 'Ingresar con esta Cuenta Google'}
+                  {mode === 'signup' ? 'Crear Cuenta con Google Móvil' : 'Ingresar con Cuenta Google Móvil'}
                 </button>
               </form>
             </div>
