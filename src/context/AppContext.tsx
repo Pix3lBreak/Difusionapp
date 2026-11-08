@@ -415,8 +415,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(STORAGE_KEYS.WALL, JSON.stringify(wallPosts));
   }, [wallPosts]);
 
-  // Real-time Firestore sync for Wall Posts, Reactions and Comments
+  // Real-time Firestore sync for Wall Posts, Reactions and Comments (Authenticated users only)
   useEffect(() => {
+    if (!currentUser) return;
     let unsubscribe: (() => void) | null = null;
     try {
       const wallColRef = collection(db, 'wall');
@@ -454,7 +455,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, []);
+  }, [currentUser]);
 
   // Load and merge remote users from Firestore on initial mount
   useEffect(() => {

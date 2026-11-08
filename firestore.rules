@@ -84,10 +84,10 @@ service cloud.firestore {
       allow write: if isSuperAdmin();
     }
 
-    // Real-Time Social Wall ("Para Ti")
+    // Real-Time Social Wall ("Para Ti") - Restricted to Authenticated Users
     match /wall/{postId} {
-      allow read: if isValidId(postId);
-      allow list: if true;
+      allow read: if isSignedIn() && isValidId(postId);
+      allow list: if isSignedIn();
       allow create: if isSignedIn();
       allow update: if isSignedIn();
       allow delete: if isSuperAdmin();

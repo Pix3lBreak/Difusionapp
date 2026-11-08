@@ -190,6 +190,72 @@ export const SocialWallSection: React.FC = () => {
     }
   };
 
+  // TOTAL LOCKOUT: If user is not logged in, they cannot view the "Para Ti" social feed
+  if (!currentUser) {
+    return (
+      <div className="min-h-[85vh] bg-black text-slate-100 flex flex-col justify-center items-center px-4 py-16 relative overflow-hidden">
+        {/* Ambient background glows */}
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-[var(--color-primary)]/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-10 right-10 w-72 h-72 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="max-w-md w-full mx-auto text-center relative z-10 bg-zinc-950/90 border border-zinc-800 rounded-3xl p-8 sm:p-10 shadow-2xl backdrop-blur-xl">
+          {/* Lock Icon with Glowing Effect */}
+          <div className="relative inline-block mb-6">
+            <div className="w-20 h-20 rounded-2xl bg-zinc-900 border border-zinc-700/80 flex items-center justify-center text-[var(--color-primary)] mx-auto shadow-inner shadow-black">
+              <Lock className="w-10 h-10 text-[var(--color-primary)]" />
+            </div>
+            <span className="absolute -top-1.5 -right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-orange-500 text-xs text-white font-bold ring-4 ring-black animate-pulse">
+              🔥
+            </span>
+          </div>
+
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-400 text-xs font-bold mb-3">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Muro Social Exclusivo</span>
+          </div>
+
+          <h2 className="text-2xl font-black text-white tracking-tight mb-2">
+            Inicia Sesión para ver <span className="text-[var(--color-primary)]">Para Ti</span>
+          </h2>
+
+          <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed mb-6">
+            El feed social <strong>«Para Ti»</strong> con fotografías en vivo, backstages oficiales, reacciones en tiempo real y comentarios está reservado exclusivamente para la comunidad registrada de DIFUSION Venezuela.
+          </p>
+
+          <div className="space-y-2.5 text-left bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-4 mb-6 text-xs text-zinc-300">
+            <div className="flex items-center gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-[var(--color-primary)] shrink-0" />
+              <span>Acceso al feed en vivo de modelos y empresas</span>
+            </div>
+            <div className="flex items-center gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-orange-400 shrink-0" />
+              <span>Reacciona con Fueguitos (🔥), Corazones (❤️) y Likes (👍)</span>
+            </div>
+            <div className="flex items-center gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0" />
+              <span>Publica tu actualización y foto diaria (1 post al día)</span>
+            </div>
+            <div className="flex items-center gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-pink-400 shrink-0" />
+              <span>Participa en los hilos de comentarios en tiempo real</span>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setShowAuthModal(true)}
+            className="w-full py-3.5 px-6 rounded-xl bg-[var(--color-primary)] hover:opacity-90 text-black font-extrabold text-xs uppercase tracking-wider transition-all shadow-lg shadow-[var(--color-primary)]/20 active:scale-95 flex items-center justify-center gap-2"
+          >
+            <span>Iniciar Sesión / Registrarse</span>
+          </button>
+
+          <p className="text-[11px] text-zinc-500 mt-4">
+            Ingreso rápido y seguro con tu cuenta de Google o correo electrónico.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-black text-slate-100 pb-24 md:pb-16">
       {/* Top Hero Banner */}
