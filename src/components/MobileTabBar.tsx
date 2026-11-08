@@ -2,6 +2,7 @@ import React from 'react';
 import { useApp } from '../context/AppContext';
 import {
   Users,
+  Flame,
   Calendar,
   Video,
   ShieldCheck,
@@ -13,7 +14,7 @@ export const MobileTabBar: React.FC = () => {
 
   return (
     <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-zinc-950/95 backdrop-blur-md border-t border-zinc-800 pb-safe">
-      <div className="grid grid-cols-4 items-center h-16">
+      <div className="grid grid-cols-5 items-center h-16">
         
         {/* Catálogo Tab */}
         <button
@@ -26,6 +27,19 @@ export const MobileTabBar: React.FC = () => {
         >
           <Users className="w-5 h-5" />
           <span className="text-[10px] tracking-tight mt-1">Catálogo</span>
+        </button>
+
+        {/* Para Ti Tab (Muro Social) */}
+        <button
+          onClick={() => setActiveTab('parati')}
+          className={`flex flex-col items-center justify-center min-h-[44px] min-w-[44px] transition-colors ${
+            activeTab === 'parati'
+              ? 'text-orange-400 font-bold'
+              : 'text-zinc-400 hover:text-white'
+          }`}
+        >
+          <Flame className="w-5 h-5" />
+          <span className="text-[10px] tracking-tight mt-1">Para Ti</span>
         </button>
 
         {/* Eventos Tab */}
@@ -72,15 +86,27 @@ export const MobileTabBar: React.FC = () => {
           </button>
         ) : currentUser?.role === 'model' ? (
           <button
-            onClick={() => setActiveTab('admin')}
+            onClick={() => setActiveTab('dashboard')}
             className={`flex flex-col items-center justify-center min-h-[44px] min-w-[44px] transition-colors ${
-              activeTab === 'admin'
+              activeTab === 'dashboard'
                 ? 'text-[var(--color-primary)] font-bold'
                 : 'text-zinc-400 hover:text-white'
             }`}
           >
             <User className="w-5 h-5 text-[var(--color-primary)]" />
-            <span className="text-[10px] tracking-tight mt-1">Mi Perfil</span>
+            <span className="text-[10px] tracking-tight mt-1">Mi MediaKit</span>
+          </button>
+        ) : currentUser?.role === 'empresa' ? (
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`flex flex-col items-center justify-center min-h-[44px] min-w-[44px] transition-colors ${
+              activeTab === 'dashboard'
+                ? 'text-blue-400 font-bold'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <User className="w-5 h-5 text-blue-400" />
+            <span className="text-[10px] tracking-tight mt-1">Mi Empresa</span>
           </button>
         ) : (
           <button

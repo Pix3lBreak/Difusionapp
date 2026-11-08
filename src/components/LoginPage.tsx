@@ -31,10 +31,14 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState<'client' | 'model'>('client');
+  const [role, setRole] = useState<'client' | 'empresa' | 'model'>('client');
+  const [companyName, setCompanyName] = useState('');
+  const [companyRif, setCompanyRif] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showMobileGooglePrompt, setShowMobileGooglePrompt] = useState(false);
+  const [mobileGoogleEmail, setMobileGoogleEmail] = useState('');
 
   // If already logged in, show redirection option
   if (currentUser) {
@@ -89,7 +93,10 @@ export const LoginPage: React.FC = () => {
       }
 
       setIsLoading(true);
-      const res = await signUpWithEmailPassword(email, password, name, role);
+      const res = await signUpWithEmailPassword(email, password, name, role, {
+        companyName: role === 'empresa' ? companyName : undefined,
+        companyRif: role === 'empresa' ? companyRif : undefined,
+      });
       setIsLoading(false);
       if (res.success) {
         setActiveTab('dashboard');
@@ -110,10 +117,40 @@ export const LoginPage: React.FC = () => {
 
   const handleGooglePopup = async () => {
     setIsLoading(true);
-    const ok = await signInWithFirebaseGoogle();
+    setErrorMessage(null);
+    const res = await signInWithFirebaseGoogle(
+      undefined,
+      mode === 'signup' ? role : undefined,
+      mode === 'signup' ? name : undefined
+    );
     setIsLoading(false);
-    if (ok) {
+    if (res.success) {
       setActiveTab('dashboard');
+    } else if (res.isPopupBlocked) {
+      setShowMobileGooglePrompt(true);
+      showToast('📱 Acceso móvil activado: confirma tu cuenta Google abajo.');
+    } else if (res.error) {
+      setErrorMessage(res.error);
+    }
+  };
+
+  const handleMobileGoogleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mobileGoogleEmail.trim()) {
+      setErrorMessage('Por favor introduce tu correo de Google.');
+      return;
+    }
+    setIsLoading(true);
+    const res = await signInWithFirebaseGoogle(
+      mobileGoogleEmail.trim(),
+      mode === 'signup' ? role : undefined,
+      mode === 'signup' ? name : undefined
+    );
+    setIsLoading(false);
+    if (res.success) {
+      setActiveTab('dashboard');
+    } else if (res.error) {
+      setErrorMessage(res.error);
     }
   };
 
@@ -202,32 +239,67 @@ export const LoginPage: React.FC = () => {
 
               <div>
                 <label className="block text-xs text-zinc-400 mb-1.5 font-medium">
-                  Tipo de Cuenta
+                  Tipo de Cuenta Solicitada (Requiere Aprobación)
                 </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setRole('client')}
-                    className={`py-2 px-3 rounded-xl border text-xs font-semibold transition-all ${
-                      role === 'client'
-                        ? 'bg-zinc-850 border-[var(--color-primary)] text-[var(--color-primary)]'
-                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
-                    }`}
-                  >
-                    Cliente / Empresa
-                  </button>
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setRole('model')}
-                    className={`py-2 px-3 rounded-xl border text-xs font-semibold transition-all ${
+                    className={`py-2 px-2 rounded-xl border text-[11px] font-semibold transition-all text-center ${
                       role === 'model'
-                        ? 'bg-zinc-850 border-[var(--color-primary)] text-[var(--color-primary)]'
+                        ? 'bg-purple-950/40 border-purple-500 text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
                         : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
                     }`}
                   >
-                    Modelo / Promotora
+                    <div className="font-bold">👠 Modelo</div>
+                    <div className="text-[9px] text-zinc-500">Promotora</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setRole('empresa')}
+                    className={`py-2 px-2 rounded-xl border text-[11px] font-semibold transition-all text-center ${
+                      role === 'empresa'
+                        ? 'bg-blue-950/40 border-blue-500 text-blue-300 shadow-[0_0_10px_rgba(59,130,246,0.3)]'
+                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    <div className="font-bold">🏢 Empresa</div>
+                    <div className="text-[9px] text-zinc-500">Corporativo</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setRole('client')}
+                    className={`py-2 px-2 rounded-xl border text-[11px] font-semibold transition-all text-center ${
+                      role === 'client'
+                        ? 'bg-emerald-950/40 border-[var(--color-primary)] text-[var(--color-primary)] shadow-[0_0_10px_rgba(57,255,20,0.3)]'
+                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    <div className="font-bold">👤 Cliente</div>
+                    <div className="text-[9px] text-zinc-500">Particular</div>
                   </button>
                 </div>
+
+                {role === 'empresa' && (
+                  <div className="mt-2.5 p-3 rounded-xl bg-zinc-900 border border-zinc-800 space-y-2">
+                    <input
+                      type="text"
+                      value={companyName}
+                      onChange={(e) => setCompanyName(e.target.value)}
+                      placeholder="Razón Social / Nombre de Empresa"
+                      className="w-full px-3 py-2 rounded-lg bg-black border border-zinc-800 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500"
+                    />
+                    <input
+                      type="text"
+                      value={companyRif}
+                      onChange={(e) => setCompanyRif(e.target.value)}
+                      placeholder="RIF (Ej. J-12345678-9)"
+                      className="w-full px-3 py-2 rounded-lg bg-black border border-zinc-800 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500 uppercase"
+                    />
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -318,7 +390,7 @@ export const LoginPage: React.FC = () => {
             type="button"
             onClick={handleGooglePopup}
             disabled={isLoading}
-            className="w-full flex items-center justify-center gap-3 p-3 rounded-2xl bg-white hover:bg-zinc-100 text-zinc-900 font-bold text-xs shadow-md transition-all active:scale-98"
+            className="w-full flex items-center justify-center gap-3 p-3.5 rounded-2xl bg-white hover:bg-zinc-100 text-zinc-900 font-bold text-xs shadow-md transition-all active:scale-98 disabled:opacity-60"
           >
             <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
               <path
@@ -338,8 +410,85 @@ export const LoginPage: React.FC = () => {
                 d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
               />
             </svg>
-            <span>Continuar con Google (OAuth 2.0)</span>
+            <span>
+              {mode === 'signup'
+                ? 'Crear Cuenta con Google'
+                : 'Iniciar Sesión con Google'}
+            </span>
           </button>
+
+          {/* Quick toggle for mobile direct access without popups */}
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => setShowMobileGooglePrompt(!showMobileGooglePrompt)}
+              className="inline-flex items-center gap-1.5 text-[11px] text-zinc-400 hover:text-[var(--color-primary)] transition-colors underline"
+            >
+              <Smartphone className="w-3.5 h-3.5 text-[var(--color-primary)]" />
+              <span>
+                {showMobileGooglePrompt
+                  ? 'Ocultar acceso directo móvil'
+                  : '¿En teléfono móvil o se cerró la ventana? Toca aquí'}
+              </span>
+            </button>
+          </div>
+
+          {/* Direct Mobile Google Card */}
+          {showMobileGooglePrompt && (
+            <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-[var(--color-primary)]" />
+                  Acceso Directo Google (Móvil)
+                </span>
+                <span className="text-[10px] text-[var(--color-primary)] font-semibold">
+                  Sin ventanas emergentes
+                </span>
+              </div>
+
+              {/* Quick Super Admin shortcut */}
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileGoogleEmail('pixelglez1988@gmail.com');
+                  signInWithFirebaseGoogle('pixelglez1988@gmail.com');
+                }}
+                className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-700 hover:border-[var(--color-primary)] text-left flex items-center justify-between transition-colors group"
+              >
+                <div>
+                  <div className="text-xs font-bold text-white group-hover:text-[var(--color-primary)] flex items-center gap-1">
+                    <span>👑 Super Admin Google</span>
+                  </div>
+                  <div className="text-[10px] text-zinc-400 font-mono">pixelglez1988@gmail.com</div>
+                </div>
+                <span className="text-[10px] text-zinc-400 group-hover:text-white">Verificar con 2FA →</span>
+              </button>
+
+              <form onSubmit={handleMobileGoogleSubmit} className="space-y-2 pt-2 border-t border-zinc-800">
+                <label className="block text-[11px] text-zinc-400 font-medium">
+                  O introduce tu correo @gmail.com:
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-2.5 w-3.5 h-3.5 text-zinc-500" />
+                  <input
+                    type="email"
+                    required
+                    value={mobileGoogleEmail}
+                    onChange={(e) => setMobileGoogleEmail(e.target.value)}
+                    placeholder="tu.correo@gmail.com"
+                    className="w-full pl-9 pr-3 py-2 rounded-xl bg-black border border-zinc-800 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-[var(--color-primary)]"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full py-2 rounded-xl bg-[var(--color-primary)] text-black font-bold text-xs hover:brightness-110 transition-all shadow-md"
+                >
+                  {mode === 'signup' ? 'Crear Cuenta con Google' : 'Ingresar con esta Cuenta Google'}
+                </button>
+              </form>
+            </div>
+          )}
         </div>
 
         {/* Notice walking user through enabling Email/Password in Firebase Console */}

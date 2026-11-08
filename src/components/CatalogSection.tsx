@@ -13,6 +13,9 @@ import {
   Sparkles,
   Phone,
   Crown,
+  Lock,
+  Clock,
+  AlertCircle,
 } from 'lucide-react';
 
 interface CatalogSectionProps {
@@ -38,12 +41,72 @@ export const CatalogSection: React.FC<CatalogSectionProps> = ({
     setSelectedModel,
     setActiveChatModel,
     generateWhatsAppUrl,
+    currentUser,
+    setActiveTab,
+    setShowRoleSelectionModal,
   } = useApp();
 
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'rating' | 'rate_asc' | 'rate_desc'>('rating');
   const [onlyVerified, setOnlyVerified] = useState<boolean>(false);
   const [onlyVip, setOnlyVip] = useState<boolean>(false);
+
+  // LOGICAL RESTRICTION: Users in 'standby' status cannot view models until approved by Super Admin
+  if (currentUser?.status === 'standby') {
+    return (
+      <section className="py-12 sm:py-20 bg-black">
+        <div className="mx-auto max-w-3xl px-4 sm:px-6 text-center">
+          <div className="p-8 sm:p-10 rounded-3xl bg-zinc-950 border-2 border-amber-500/40 shadow-2xl relative overflow-hidden">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto mb-4">
+              <Lock className="w-8 h-8 text-amber-400 animate-pulse" />
+            </div>
+
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-black uppercase tracking-wider mb-3">
+              <Clock className="w-3.5 h-3.5" />
+              <span>Cuenta en Revisión Oficial (Standby)</span>
+            </div>
+
+            <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight mb-2">
+              Acceso al Catálogo Restringido
+            </h2>
+
+            <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed max-w-xl mx-auto mb-6">
+              Por políticas de seguridad y protección de las modelos y promotoras en Venezuela, los usuarios registrados deben ser revisados y <strong>aprobados oficialmente por la Administración de DIFUSION</strong> antes de tener acceso a los perfiles, fotos y cotizaciones.
+            </p>
+
+            <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 text-left text-xs space-y-2 mb-6 max-w-lg mx-auto">
+              <div className="flex items-center gap-2 text-white font-bold">
+                <ShieldCheck className="w-4 h-4 text-[var(--color-primary)]" />
+                <span>Detalles de tu registro:</span>
+              </div>
+              <p className="text-zinc-400 leading-relaxed">
+                • Usuario: <strong className="text-white">{currentUser.name}</strong> ({currentUser.email})<br />
+                • Rol solicitado:{' '}
+                <strong className="text-[var(--color-primary)] uppercase">
+                  {currentUser.requestedRole === 'model'
+                    ? 'Promotora / Modelo'
+                    : currentUser.requestedRole === 'empresa'
+                    ? 'Empresa / Marca'
+                    : 'Cliente Particular'}
+                </strong><br />
+                • Estado: <span className="text-amber-400 font-bold">⏳ En espera de aprobación por el Super Admin</span>
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[var(--color-primary)] text-black font-bold text-xs shadow-lg hover:brightness-110 transition-all"
+              >
+                Ir a Mi Panel de Usuario
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
 
   // Filter models
   const filteredModels = models.filter((model) => {
@@ -59,9 +122,13 @@ export const CatalogSection: React.FC<CatalogSectionProps> = ({
     if (onlyVerified && model.identityVerification?.status !== 'verificado' && !model.verified) {
       return false;
     }
-    // City filter
-    if (selectedCity !== 'Todas' && model.location.city !== selectedCity) {
-      return false;
+    // City filter (case-insensitive and trimmed)
+    if (selectedCity && selectedCity !== 'Todas') {
+      const modelCity = (model.location?.city || '').trim().toLowerCase();
+      const targetCity = selectedCity.trim().toLowerCase();
+      if (modelCity !== targetCity) {
+        return false;
+      }
     }
     // Category filter
     if (selectedCategory !== 'all' && model.category !== selectedCategory) {
@@ -199,8 +266,8 @@ export const CatalogSection: React.FC<CatalogSectionProps> = ({
           </div>
         )}
 
-        {/* Model Cards Grid: Ultra-Compact Multi-Column (VIPs placed first) */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3.5">
+        {/* Model Cards Grid: 5 en 5 las tarjetas de perfil (VIPs placed first) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 2xl:grid-cols-5 gap-3 sm:gap-4">
           {sortedModels.map((model) => {
             const isVip = !!model.isVip;
 

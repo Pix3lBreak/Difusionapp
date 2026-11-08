@@ -21,6 +21,17 @@ import {
   deleteDoc,
   onSnapshot,
 } from 'firebase/firestore';
+
+export {
+  doc,
+  getDocFromServer,
+  collection,
+  setDoc,
+  getDocs,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+};
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase App

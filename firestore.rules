@@ -12,12 +12,8 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
-    }
-
     function isSuperAdmin() {
-      return isVerified() && request.auth.token.email.lower() == 'pixelglez1988@gmail.com';
+      return isSignedIn() && request.auth.token.email.lower() == 'pixelglez1988@gmail.com';
     }
 
     function isOwner(userId) {
@@ -42,34 +38,26 @@ service cloud.firestore {
       allow write: if isSuperAdmin();
     }
 
-    // Users Collection
+    // Users Collection (Persists user roles, standby, and suspended states)
     match /users/{userId} {
-      allow read: if isSignedIn() && (isOwner(userId) || isSuperAdmin());
-      allow create: if isSignedIn() && isOwner(userId);
-      allow update: if isSignedIn() && (isOwner(userId) || isSuperAdmin());
+      allow get: if isSuperAdmin() || (isSignedIn() && (isOwner(userId) || request.auth.token.email.lower() == resource.data.email.lower()));
+      allow list: if isSuperAdmin();
+      allow create: if isSignedIn();
+      allow update: if isSuperAdmin() || isOwner(userId) || (isSignedIn() && request.auth.token.email.lower() == resource.data.email.lower());
       allow delete: if isSuperAdmin();
     }
 
     // Models Collection (Catalogo de Modelos Venezuela)
     match /models/{modelId} {
-      // Anyone can view unpaused models or if superadmin/owner
       allow get: if isValidId(modelId);
       allow list: if true;
-      
-      // Creation restricted to superadmin or authenticated model user
-      allow create: if isSuperAdmin() || (isVerified() && incoming().ownerEmail == request.auth.token.email);
-
-      // Super Admin can update anything (including rates & identity verification)
-      // Models can update their own data but cannot modify rates or self-validate identity
+      allow create: if isSuperAdmin() || (isSignedIn() && incoming().ownerEmail.lower() == request.auth.token.email.lower());
       allow update: if isSuperAdmin() || (
-        isVerified() &&
-        existing().ownerEmail == request.auth.token.email &&
-        incoming().ownerEmail == existing().ownerEmail &&
-        incoming().hourlyRate == existing().hourlyRate &&
-        incoming().dailyRate == existing().dailyRate &&
-        incoming().verified == existing().verified
+        isSignedIn() &&
+        existing().ownerEmail.lower() == request.auth.token.email.lower() &&
+        (!('ownerEmail' in incoming()) || incoming().ownerEmail.lower() == existing().ownerEmail.lower()) &&
+        (!('verified' in incoming()) || incoming().verified == existing().verified)
       );
-
       allow delete: if isSuperAdmin();
     }
 
@@ -85,7 +73,24 @@ service cloud.firestore {
     match /events/{eventId} {
       allow read: if isValidId(eventId);
       allow list: if true;
-      allow create, update, delete: if isSuperAdmin();
+      allow create: if isSuperAdmin() || isSignedIn();
+      allow update: if isSuperAdmin() || isSignedIn();
+      allow delete: if isSuperAdmin();
+    }
+
+    // Agency Theme and Global Configuration
+    match /config/{configId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    // Real-Time Social Wall ("Para Ti")
+    match /wall/{postId} {
+      allow read: if isValidId(postId);
+      allow list: if true;
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSuperAdmin();
     }
 
     // Direct Chats Collection

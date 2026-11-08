@@ -32,7 +32,13 @@ import {
   UserX,
   Globe,
   Crown,
+  Tv,
+  Radio,
+  Code,
+  Image as ImageIcon,
 } from 'lucide-react';
+import { HeroBannerSettings } from './HeroBannerSettings';
+import { UserDashboard } from './UserDashboard';
 
 export const AdminDashboard: React.FC = () => {
   const {
@@ -58,11 +64,26 @@ export const AdminDashboard: React.FC = () => {
     registeredUsers,
     activateUserAccount,
     rejectUserAccount,
+    updateCurrentUserProfile,
+    updateStreamConfig,
     setActiveTab: setGlobalActiveTab,
     showToast,
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'modelos' | 'activaciones' | 'ciudades' | 'verificaciones' | 'estilos' | 'privacidad'>('modelos');
+  // STRICT ACCESS SECURITY: Non-superadmins must never access the global admin dashboard
+  if (!isSuperAdmin) {
+    return <UserDashboard />;
+  }
+
+  const [activeTab, setActiveTab] = useState<'modelos' | 'promotoras' | 'clientes' | 'stream' | 'activaciones' | 'ciudades' | 'verificaciones' | 'estilos' | 'privacidad' | 'cabecera'>('modelos');
+
+  // Stream Configuration state (Super Admin live HTML embed)
+  const [streamHtml, setStreamHtml] = useState<string>(themeConfig.streamConfig?.embedHtml || '');
+  const [streamTitle, setStreamTitle] = useState<string>(themeConfig.streamConfig?.streamTitle || 'Backstage en Vivo & Transmisión Oficial');
+  const [streamPlatform, setStreamPlatform] = useState<string>(themeConfig.streamConfig?.platformName || 'TikTok Live');
+  const [streamHost, setStreamHost] = useState<string>(themeConfig.streamConfig?.hostName || 'Daniela Ospina');
+  const [streamIsLive, setStreamIsLive] = useState<boolean>(themeConfig.streamConfig?.isLive ?? true);
+  const [clientTypeFilter, setClientTypeFilter] = useState<'all' | 'empresa' | 'particular'>('all');
 
   // Rates editing modal state (Super Admin only)
   const [rateEditModel, setRateEditModel] = useState<ModelProfile | null>(null);
@@ -141,6 +162,16 @@ export const AdminDashboard: React.FC = () => {
   const visibleModels = isSuperAdmin
     ? models
     : models.filter((m) => m.id === currentModelProfile?.id || m.ownerEmail === currentUser?.email);
+
+  const modelsOnly = visibleModels.filter((m) => m.category !== 'promotora');
+  const promotorasOnly = visibleModels.filter((m) => m.category === 'promotora');
+  const clientUsers = registeredUsers.filter(
+    (u) =>
+      u.role === 'client' ||
+      u.role === 'empresa' ||
+      u.requestedRole === 'client' ||
+      u.requestedRole === 'empresa'
+  );
 
   // Device Avatar Upload
   const handleAvatarDeviceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -500,12 +531,51 @@ export const AdminDashboard: React.FC = () => {
           >
             <Users className="w-4 h-4" />
             <span>
-              {isSuperAdmin ? `Gestión de Modelos (${models.length})` : 'Mi Información & MediaKit'}
+              {isSuperAdmin ? `Gestión de Modelos (${modelsOnly.length})` : 'Mi Información & MediaKit'}
             </span>
           </button>
 
           {isSuperAdmin && (
             <>
+              {/* Promotoras Management Tab */}
+              <button
+                onClick={() => setActiveTab('promotoras')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+                  activeTab === 'promotoras'
+                    ? 'bg-[var(--color-primary)] text-black font-bold'
+                    : 'bg-zinc-900 text-zinc-300 hover:text-white'
+                }`}
+              >
+                <Briefcase className="w-4 h-4" />
+                <span>Gestión de Promotoras ({promotorasOnly.length})</span>
+              </button>
+
+              {/* Clientes & Empresas Management Tab */}
+              <button
+                onClick={() => setActiveTab('clientes')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+                  activeTab === 'clientes'
+                    ? 'bg-[var(--color-primary)] text-black font-bold'
+                    : 'bg-zinc-900 text-zinc-300 hover:text-white'
+                }`}
+              >
+                <Building className="w-4 h-4" />
+                <span>Gestión de Clientes & Empresas ({clientUsers.length})</span>
+              </button>
+
+              {/* Live Stream HTML Embed Configuration Tab */}
+              <button
+                onClick={() => setActiveTab('stream')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+                  activeTab === 'stream'
+                    ? 'bg-[var(--color-primary)] text-black font-bold'
+                    : 'bg-zinc-900 text-zinc-300 hover:text-white'
+                }`}
+              >
+                <Tv className="w-4 h-4" />
+                <span>Panel En Vivo (HTML Embed)</span>
+              </button>
+
               {/* Standby Accounts Activation Tab */}
               <button
                 onClick={() => setActiveTab('activaciones')}
@@ -567,6 +637,18 @@ export const AdminDashboard: React.FC = () => {
               </button>
 
               <button
+                onClick={() => setActiveTab('cabecera')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+                  activeTab === 'cabecera'
+                    ? 'bg-[var(--color-primary)] text-black font-bold'
+                    : 'bg-zinc-900 text-zinc-300 hover:text-white'
+                }`}
+              >
+                <ImageIcon className="w-4 h-4" />
+                <span>Fondo de Cabecera (Marca de Agua)</span>
+              </button>
+
+              <button
                 onClick={() => setActiveTab('privacidad')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
                   activeTab === 'privacidad'
@@ -581,10 +663,35 @@ export const AdminDashboard: React.FC = () => {
           )}
         </div>
 
-        {/* TAB 1: GESTIÓN DE MODELOS & MI PERFIL */}
+        {/* TAB 1: GESTIÓN DE MODELOS (PASARELA, FOTOGRAFÍA, HOSTESS, STREAMING) */}
         {activeTab === 'modelos' && (
           <div className="space-y-4">
-            
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-zinc-950 border border-zinc-800">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Users className="w-4 h-4 text-[var(--color-primary)]" />
+                  Modelos de Pasarela, Fotografía & Hostess ({modelsOnly.length})
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Gestión de modelos editoriales, desfiles de moda y producción audiovisual en Venezuela.
+                </p>
+              </div>
+              {isSuperAdmin && (
+                <button
+                  onClick={() => {
+                    resetForm();
+                    setCategory('pasarela');
+                    setRoleLabel('Modelo de Pasarela & Fashion');
+                    setShowAddModal(true);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-[var(--color-primary)] text-black text-xs font-bold hover:opacity-90 transition-all flex items-center gap-1.5 shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Nueva Modelo</span>
+                </button>
+              )}
+            </div>
+
             {/* Notice for models */}
             {!isSuperAdmin && (
               <div className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800 flex items-start gap-3 text-xs">
@@ -612,7 +719,7 @@ export const AdminDashboard: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-900">
-                  {visibleModels.map((model) => (
+                  {modelsOnly.map((model) => (
                     <tr key={model.id} className="hover:bg-zinc-900/50 transition-colors">
                       <td className="p-4 flex items-center gap-3">
                         <img
@@ -689,11 +796,6 @@ export const AdminDashboard: React.FC = () => {
                               ? 'bg-amber-950 text-amber-400 border border-amber-800 hover:bg-amber-900'
                               : 'bg-emerald-950 text-emerald-400 border border-emerald-800 hover:bg-emerald-900'
                           }`}
-                          title={
-                            model.isPaused
-                              ? 'Toca para reactivar en el catálogo'
-                              : 'Toca para pausar (desaparece del catálogo)'
-                          }
                         >
                           {model.isPaused ? (
                             <>
@@ -712,11 +814,11 @@ export const AdminDashboard: React.FC = () => {
                         <div className="flex items-center gap-2 text-zinc-400">
                           <span className="flex items-center gap-1">
                             <Instagram className="w-3.5 h-3.5 text-pink-400" />
-                            {model.socialMedia.instagram.followers}
+                            {model.socialMedia?.instagram?.followers || '120K'}
                           </span>
                           <span className="flex items-center gap-1">
                             <Video className="w-3.5 h-3.5 text-cyan-400" />
-                            {model.socialMedia.tiktok.likes}
+                            {model.socialMedia?.tiktok?.likes || '2.5M'}
                           </span>
                         </div>
                       </td>
@@ -724,7 +826,6 @@ export const AdminDashboard: React.FC = () => {
                         <button
                           onClick={() => startEditModel(model)}
                           className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white font-semibold transition-colors inline-flex items-center gap-1"
-                          title="Editar perfil y fotos"
                         >
                           <Edit className="w-3.5 h-3.5 text-[var(--color-primary)]" />
                           <span>Editar</span>
@@ -737,7 +838,6 @@ export const AdminDashboard: React.FC = () => {
                               }
                             }}
                             className="p-1.5 rounded-lg bg-red-950 hover:bg-red-900 text-red-300 transition-colors"
-                            title="Eliminar modelo (Super Admin)"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -747,6 +847,482 @@ export const AdminDashboard: React.FC = () => {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: GESTIÓN DE PROMOTORAS (EVENTOS & ACTIVACIONES) */}
+        {activeTab === 'promotoras' && isSuperAdmin && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-zinc-950 border border-zinc-800">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Briefcase className="w-4 h-4 text-[var(--color-primary)]" />
+                  Promotoras VIP & Protocolo para Eventos ({promotorasOnly.length})
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Coordinación de promotoras para congresos, salones comerciales, exposiciones y activaciones de marca.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  resetForm();
+                  setCategory('promotora');
+                  setRoleLabel('Promotora VIP & Eventos');
+                  setShowAddModal(true);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-[var(--color-primary)] text-black text-xs font-bold hover:opacity-90 transition-all flex items-center gap-1.5 shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Nueva Promotora</span>
+              </button>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-950">
+              <table className="w-full text-left text-xs text-zinc-300">
+                <thead className="bg-zinc-900/90 text-zinc-400 font-semibold border-b border-zinc-800 uppercase text-[10px] tracking-wider">
+                  <tr>
+                    <th className="p-4">Promotora</th>
+                    <th className="p-4">Ciudad (Venezuela)</th>
+                    <th className="p-4">Tarifa / Hora</th>
+                    <th className="p-4 text-center">Membresía VIP (Top Catálogo)</th>
+                    <th className="p-4">Estado en Catálogo</th>
+                    <th className="p-4">MediaKit Conectado</th>
+                    <th className="p-4 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-900">
+                  {promotorasOnly.map((model) => (
+                    <tr key={model.id} className="hover:bg-zinc-900/50 transition-colors">
+                      <td className="p-4 flex items-center gap-3">
+                        <img
+                          src={model.avatar}
+                          alt={model.name}
+                          className="w-10 h-10 rounded-full object-cover ring-1 ring-zinc-700"
+                        />
+                        <div>
+                          <div className="font-bold text-white flex items-center gap-1.5">
+                            <span>{model.name}</span>
+                            {model.isPaused && (
+                              <span className="text-[10px] px-1.5 py-0.2 bg-amber-950 text-amber-400 border border-amber-800 rounded">
+                                Pausada
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-zinc-500">{model.roleLabel}</div>
+                          {model.ownerEmail && (
+                            <div className="text-[10px] text-zinc-500 font-mono">
+                              {model.ownerEmail}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <div className="flex items-center gap-1 text-zinc-300">
+                          <MapPin className="w-3.5 h-3.5 text-[var(--color-primary)]" />
+                          <span>{model.location.city}, Venezuela</span>
+                        </div>
+                      </td>
+                      <td className="p-4 font-mono font-bold text-white tabular-nums">
+                        ${model.hourlyRate} USD
+                        <button
+                          onClick={() => handleOpenRateEditor(model)}
+                          className="ml-2 p-1 text-[10px] text-[var(--color-primary)] hover:underline"
+                          title="Editar tarifa (Super Admin)"
+                        >
+                          Editar
+                        </button>
+                      </td>
+                      <td className="p-4 text-center">
+                        <button
+                          onClick={() => toggleVipModel(model.id)}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                            model.isVip
+                              ? 'bg-gradient-to-r from-amber-400 to-yellow-300 text-black border border-amber-300 shadow-[0_0_12px_rgba(251,191,36,0.35)] active:scale-95'
+                              : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 border border-zinc-800 hover:border-zinc-700'
+                          }`}
+                          title="Toca para activar o desactivar la membresía VIP"
+                        >
+                          <Crown className={`w-3.5 h-3.5 ${model.isVip ? 'text-black fill-black' : 'text-zinc-500'}`} />
+                          <span>{model.isVip ? '⭐ VIP Activo' : 'Hacer VIP'}</span>
+                        </button>
+                      </td>
+                      <td className="p-4">
+                        <button
+                          onClick={() => togglePauseModel(model.id)}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                            model.isPaused
+                              ? 'bg-amber-950 text-amber-400 border border-amber-800 hover:bg-amber-900'
+                              : 'bg-emerald-950 text-emerald-400 border border-emerald-800 hover:bg-emerald-900'
+                          }`}
+                        >
+                          {model.isPaused ? (
+                            <>
+                              <PlayCircle className="w-3.5 h-3.5" />
+                              <span>Pausada (Oculta)</span>
+                            </>
+                          ) : (
+                            <>
+                              <PauseCircle className="w-3.5 h-3.5" />
+                              <span>Activa (Visible)</span>
+                            </>
+                          )}
+                        </button>
+                      </td>
+                      <td className="p-4">
+                        <div className="flex items-center gap-2 text-zinc-400">
+                          <span className="flex items-center gap-1">
+                            <Instagram className="w-3.5 h-3.5 text-pink-400" />
+                            {model.socialMedia?.instagram?.followers || '150K'}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Video className="w-3.5 h-3.5 text-cyan-400" />
+                            {model.socialMedia?.tiktok?.likes || '3.2M'}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="p-4 text-right space-x-2">
+                        <button
+                          onClick={() => startEditModel(model)}
+                          className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white font-semibold transition-colors inline-flex items-center gap-1"
+                        >
+                          <Edit className="w-3.5 h-3.5 text-[var(--color-primary)]" />
+                          <span>Editar</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`¿Eliminar permanentemente a ${model.name}?`)) {
+                              deleteModel(model.id);
+                            }
+                          }}
+                          className="p-1.5 rounded-lg bg-red-950 hover:bg-red-900 text-red-300 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: GESTIÓN DE CLIENTES & EMPRESAS */}
+        {activeTab === 'clientes' && isSuperAdmin && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-zinc-950 border border-zinc-800">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Building className="w-4 h-4 text-[var(--color-primary)]" />
+                  Gestión de Clientes & Empresas Registradas ({clientUsers.length})
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Control de cuentas particulares y perfiles corporativos autorizados para contratar y publicar convocatorias.
+                </p>
+              </div>
+
+              {/* Filter Chips */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setClientTypeFilter('all')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
+                    clientTypeFilter === 'all'
+                      ? 'bg-[var(--color-primary)] text-black font-bold'
+                      : 'bg-zinc-900 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  Todos ({clientUsers.length})
+                </button>
+                <button
+                  onClick={() => setClientTypeFilter('empresa')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
+                    clientTypeFilter === 'empresa'
+                      ? 'bg-blue-500 text-white font-bold'
+                      : 'bg-zinc-900 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  Empresas C.A. ({clientUsers.filter((u) => u.role === 'empresa' || u.clientType === 'empresa').length})
+                </button>
+                <button
+                  onClick={() => setClientTypeFilter('particular')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
+                    clientTypeFilter === 'particular'
+                      ? 'bg-zinc-700 text-white font-bold'
+                      : 'bg-zinc-900 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  Particulares ({clientUsers.filter((u) => u.role === 'client' && u.clientType !== 'empresa').length})
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-950">
+              <table className="w-full text-left text-xs text-zinc-300">
+                <thead className="bg-zinc-900/90 text-zinc-400 font-semibold border-b border-zinc-800 uppercase text-[10px] tracking-wider">
+                  <tr>
+                    <th className="p-4">Cliente / Razón Social</th>
+                    <th className="p-4">Tipo de Cuenta</th>
+                    <th className="p-4">Contacto</th>
+                    <th className="p-4">Estado</th>
+                    <th className="p-4 text-right">Acciones Super Admin</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-900">
+                  {clientUsers
+                    .filter((u) => {
+                      if (clientTypeFilter === 'empresa') {
+                        return u.role === 'empresa' || u.clientType === 'empresa';
+                      }
+                      if (clientTypeFilter === 'particular') {
+                        return u.role === 'client' && u.clientType !== 'empresa';
+                      }
+                      return true;
+                    })
+                    .map((client) => {
+                      const isCompany = client.role === 'empresa' || client.clientType === 'empresa';
+                      return (
+                        <tr key={client.id} className="hover:bg-zinc-900/50 transition-colors">
+                          <td className="p-4 flex items-center gap-3">
+                            <img
+                              src={client.avatar}
+                              alt={client.name}
+                              className="w-10 h-10 rounded-xl object-cover ring-1 ring-zinc-700"
+                            />
+                            <div>
+                              <div className="font-bold text-white text-sm">{client.name}</div>
+                              {client.companyName && (
+                                <div className="text-xs text-[var(--color-primary)] font-medium">
+                                  {client.companyName} {client.companyRif ? `· RIF: ${client.companyRif}` : ''}
+                                </div>
+                              )}
+                              <div className="text-[10px] text-zinc-500 font-mono">{client.email}</div>
+                            </div>
+                          </td>
+
+                          <td className="p-4">
+                            {isCompany ? (
+                              <span className="px-2.5 py-1 rounded-lg bg-blue-500/15 text-blue-400 font-bold border border-blue-500/30 text-[11px] inline-flex items-center gap-1">
+                                <Building className="w-3 h-3" />
+                                Empresa (Autorizada p/ Convocatorias)
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-1 rounded-lg bg-zinc-800 text-zinc-300 font-medium text-[11px]">
+                                Cliente Particular
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="p-4 text-zinc-300">
+                            <div>{client.phone || 'No registrado'}</div>
+                            <div className="text-[10px] text-zinc-500">{client.createdAt || 'Registrado'}</div>
+                          </td>
+
+                          <td className="p-4">
+                            <span
+                              className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                client.status === 'active'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                  : client.status === 'standby'
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                  : 'bg-red-500/20 text-red-300 border border-red-500/30'
+                              }`}
+                            >
+                              {client.status === 'active'
+                                ? '✓ Activa'
+                                : client.status === 'standby'
+                                ? '⏳ Standby'
+                                : 'Suspendida'}
+                            </span>
+                          </td>
+
+                          <td className="p-4 text-right space-x-2">
+                            {client.status !== 'active' ? (
+                              <button
+                                onClick={() => activateUserAccount(client.id, isCompany ? 'empresa' : 'client')}
+                                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors"
+                              >
+                                Activar Cuenta
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => rejectUserAccount(client.id)}
+                                className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-red-950 text-zinc-400 hover:text-red-400 text-xs font-semibold transition-colors"
+                              >
+                                Suspender
+                              </button>
+                            )}
+
+                            {/* Toggle between Empresa and Particular */}
+                            <button
+                              onClick={() => {
+                                activateUserAccount(client.id, isCompany ? 'client' : 'empresa');
+                                showToast(`Rol de ${client.name} actualizado a ${isCompany ? 'Cliente Particular' : 'Empresa'}.`);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold transition-colors"
+                              title="Alternar entre Cliente Particular y Empresa"
+                            >
+                              {isCompany ? 'Convertir a Particular' : 'Convertir a Empresa'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: PANEL EN VIVO (HTML EMBED DE STREAM) */}
+        {activeTab === 'stream' && isSuperAdmin && (
+          <div className="space-y-6">
+            <div className="p-6 rounded-2xl bg-zinc-950 border border-zinc-800 shadow-xl space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Tv className="w-5 h-5 text-[var(--color-primary)]" />
+                    Configuración del Stream en Vivo (HTML Embed)
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-1">
+                    Incrusta directamente código HTML o iframe de <strong>TikTok Live</strong>, <strong>YouTube Live</strong>, <strong>Twitch</strong>, <strong>Kick</strong> o etiqueta de video HTML5.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${
+                      streamIsLive
+                        ? 'bg-red-600/20 text-red-400 border border-red-500/30'
+                        : 'bg-zinc-800 text-zinc-400'
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full ${streamIsLive ? 'bg-red-500 animate-pulse' : 'bg-zinc-500'}`} />
+                    {streamIsLive ? 'TRANSMISIÓN EN VIVO' : 'TRANSMISIÓN EN PAUSA'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Form to update Stream Config */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  updateStreamConfig({
+                    embedHtml: streamHtml,
+                    streamTitle,
+                    platformName: streamPlatform,
+                    hostName: streamHost,
+                    isLive: streamIsLive,
+                  });
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <Code className="w-4 h-4 text-[var(--color-primary)]" />
+                      Código HTML del Stream / Embed iframe
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setStreamHtml(
+                          `<iframe width="100%" height="100%" src="https://www.youtube.com/embed/live_stream?channel=UC4R8DWoMoI7CAwX8_bqQ5yA" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`
+                        )
+                      }
+                      className="text-[11px] text-[var(--color-primary)] hover:underline"
+                    >
+                      Cargar plantilla de ejemplo
+                    </button>
+                  </div>
+                  <textarea
+                    rows={4}
+                    value={streamHtml}
+                    onChange={(e) => setStreamHtml(e.target.value)}
+                    placeholder='Pega aquí el código HTML: <iframe src="https://..." ...></iframe> o <video src="..." autoplay controls></video>'
+                    className="w-full p-3 bg-black border border-zinc-800 rounded-xl font-mono text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-[var(--color-primary)]"
+                  />
+                  <p className="text-[11px] text-zinc-500 mt-1">
+                    Si dejas este campo vacío, la plataforma utilizará el simulador oficial de transmisión con staff de DIFUSION.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Título de la Transmisión</label>
+                    <input
+                      type="text"
+                      value={streamTitle}
+                      onChange={(e) => setStreamTitle(e.target.value)}
+                      className="w-full px-3 py-2 bg-black border border-zinc-800 rounded-xl text-xs text-white focus:outline-none focus:border-[var(--color-primary)]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Nombre de Plataforma</label>
+                    <input
+                      type="text"
+                      value={streamPlatform}
+                      onChange={(e) => setStreamPlatform(e.target.value)}
+                      placeholder="TikTok Live / YouTube Live / Twitch"
+                      className="w-full px-3 py-2 bg-black border border-zinc-800 rounded-xl text-xs text-white focus:outline-none focus:border-[var(--color-primary)]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Host / Presentadora</label>
+                    <input
+                      type="text"
+                      value={streamHost}
+                      onChange={(e) => setStreamHost(e.target.value)}
+                      className="w-full px-3 py-2 bg-black border border-zinc-800 rounded-xl text-xs text-white focus:outline-none focus:border-[var(--color-primary)]"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 pt-2">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs text-zinc-300">
+                    <input
+                      type="checkbox"
+                      checked={streamIsLive}
+                      onChange={(e) => setStreamIsLive(e.target.checked)}
+                      className="w-4 h-4 accent-[var(--color-primary)] rounded"
+                    />
+                    <span>Marcar emisión como <strong>EN VIVO</strong> en la página principal</span>
+                  </label>
+                </div>
+
+                {/* Live Preview Window */}
+                <div className="pt-4 border-t border-zinc-800">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2">
+                    Vista Previa del Reproductor
+                  </h4>
+                  <div className="relative aspect-video max-w-2xl rounded-2xl overflow-hidden bg-black border border-zinc-800 flex items-center justify-center">
+                    {streamHtml ? (
+                      <div
+                        className="w-full h-full flex items-center justify-center [&>iframe]:w-full [&>iframe]:h-full [&>video]:w-full [&>video]:h-full"
+                        dangerouslySetInnerHTML={{ __html: streamHtml }}
+                      />
+                    ) : (
+                      <div className="text-center p-6 text-zinc-500 text-xs">
+                        <Tv className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                        <div>No hay código HTML configurado.</div>
+                        <div className="text-[11px] text-zinc-600 mt-0.5">Se mostrará el reproductor oficial predeterminado de DIFUSION.</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-3">
+                  <button
+                    type="submit"
+                    className="px-6 py-2.5 rounded-xl bg-[var(--color-primary)] text-black font-bold text-xs hover:opacity-90 transition-all shadow-md active:scale-95 flex items-center gap-2"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>Guardar y Publicar en DIFUSION Live</span>
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
@@ -805,20 +1381,29 @@ export const AdminDashboard: React.FC = () => {
                           </span>
                         </div>
 
-                        <div className="p-3 rounded-xl bg-black/60 border border-zinc-800/80 text-xs space-y-1">
+                        <div className="p-3.5 rounded-xl bg-black/80 border border-zinc-800 text-xs space-y-2">
                           <div className="flex items-center justify-between text-zinc-400">
-                            <span>Rol Solicitado:</span>
-                            <span className="font-bold text-white uppercase text-[11px]">
-                              {user.requestedRole === 'model'
-                                ? 'Promotora / Modelo'
-                                : user.requestedRole === 'empresa' || user.clientType === 'empresa'
-                                ? 'Empresa / Corporativo'
-                                : 'Cliente Particular'}
-                            </span>
+                            <span>Rol Elegido por el Usuario:</span>
+                            {user.requestedRole === 'model' ? (
+                              <span className="font-bold px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[11px] flex items-center gap-1">
+                                <span>👠</span>
+                                <span>Promotora / Modelo</span>
+                              </span>
+                            ) : user.requestedRole === 'empresa' || user.clientType === 'empresa' ? (
+                              <span className="font-bold px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 text-[11px] flex items-center gap-1">
+                                <span>🏢</span>
+                                <span>Empresa / Corporativo</span>
+                              </span>
+                            ) : (
+                              <span className="font-bold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] flex items-center gap-1">
+                                <span>👤</span>
+                                <span>Cliente Particular</span>
+                              </span>
+                            )}
                           </div>
                           {user.companyName && (
                             <div className="flex items-center justify-between text-zinc-400">
-                              <span>Razón Social / RIF:</span>
+                              <span>Empresa / RIF:</span>
                               <span className="text-zinc-200 font-semibold">{user.companyName} {user.companyRif ? `(${user.companyRif})` : ''}</span>
                             </div>
                           )}
@@ -828,31 +1413,120 @@ export const AdminDashboard: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Action Activation Buttons */}
-                        <div className="pt-2 border-t border-zinc-800 flex flex-wrap gap-2">
+                        {/* Direct Approval Actions (Admin confirms or alters role) */}
+                        <div className="pt-2 border-t border-zinc-800 space-y-2">
+                          <div className="text-[11px] text-zinc-400 font-medium">
+                            Aprobar y conceder acceso al catálogo como:
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => activateUserAccount(user.id, 'client')}
+                              className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all shadow-md ${
+                                user.requestedRole === 'client' || (!user.requestedRole && user.role === 'client')
+                                  ? 'bg-[var(--color-primary)] text-black ring-2 ring-[var(--color-primary)]/40 hover:brightness-110'
+                                  : 'bg-zinc-850 hover:bg-zinc-700 text-zinc-200 border border-zinc-700'
+                              }`}
+                            >
+                              ✓ Como Cliente
+                            </button>
+                            <button
+                              onClick={() => activateUserAccount(user.id, 'empresa')}
+                              className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all shadow-md ${
+                                user.requestedRole === 'empresa'
+                                  ? 'bg-blue-500 text-white ring-2 ring-blue-500/40 hover:bg-blue-400'
+                                  : 'bg-zinc-850 hover:bg-blue-950 text-zinc-200 border border-zinc-700'
+                              }`}
+                            >
+                              ✓ Como Empresa
+                            </button>
+                            <button
+                              onClick={() => activateUserAccount(user.id, 'model')}
+                              className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all shadow-md ${
+                                user.requestedRole === 'model'
+                                  ? 'bg-purple-600 text-white ring-2 ring-purple-500/40 hover:bg-purple-500'
+                                  : 'bg-zinc-850 hover:bg-purple-950 text-zinc-200 border border-zinc-700'
+                              }`}
+                            >
+                              ✓ Como Promotora
+                            </button>
+                            <button
+                              onClick={() => rejectUserAccount(user.id)}
+                              className="py-2 px-3 rounded-xl bg-zinc-900 hover:bg-red-950 text-zinc-400 hover:text-red-400 text-xs font-semibold transition-colors border border-zinc-800"
+                            >
+                              Rechazar
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+
+            {/* List of Suspended Accounts / Standby por Suspensión */}
+            <div className="p-6 rounded-2xl bg-zinc-950 border border-red-500/30 shadow-xl space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+                    Cuentas Suspendidas / Standby por Suspensión ({registeredUsers.filter(u => u.status === 'suspended').length})
+                  </h4>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Usuarios bloqueados que no pueden ingresar al catálogo ni navegar por la web hasta que el Super Admin apruebe su reactivación.
+                  </p>
+                </div>
+              </div>
+
+              {registeredUsers.filter((u) => u.status === 'suspended').length === 0 ? (
+                <div className="p-4 text-center rounded-xl bg-zinc-900/40 border border-zinc-800 text-xs text-zinc-500">
+                  No hay cuentas suspendidas en el sistema.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {registeredUsers
+                    .filter((u) => u.status === 'suspended')
+                    .map((u) => (
+                      <div
+                        key={u.id}
+                        className="p-4 rounded-xl bg-zinc-900 border border-red-500/20 flex flex-col md:flex-row md:items-center justify-between gap-4"
+                      >
+                        <div className="flex items-center gap-3">
+                          <img
+                            src={u.avatar}
+                            alt={u.name}
+                            className="w-10 h-10 rounded-xl object-cover ring-2 ring-red-500/40"
+                          />
+                          <div>
+                            <div className="font-bold text-white text-sm flex items-center gap-2">
+                              <span>{u.name}</span>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-red-950 text-red-300 border border-red-800">
+                                Suspendida
+                              </span>
+                            </div>
+                            <div className="text-xs text-zinc-400 font-mono">{u.email}</div>
+                            {u.phone && <div className="text-[11px] text-zinc-500">{u.phone}</div>}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs text-zinc-400 font-medium mr-1">Reactivar como:</span>
                           <button
-                            onClick={() => activateUserAccount(user.id, 'client')}
-                            className="flex-1 py-2 px-3 rounded-xl bg-[var(--color-primary)] hover:opacity-90 text-black text-xs font-bold transition-all shadow-md"
+                            onClick={() => activateUserAccount(u.id, 'client')}
+                            className="px-3 py-1.5 rounded-lg bg-[var(--color-primary)] text-black text-xs font-bold hover:brightness-110 transition-all shadow-sm"
                           >
-                            ✓ Activar como Cliente
+                            ✓ Cliente
                           </button>
                           <button
-                            onClick={() => activateUserAccount(user.id, 'empresa')}
-                            className="flex-1 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-md"
+                            onClick={() => activateUserAccount(u.id, 'empresa')}
+                            className="px-3 py-1.5 rounded-lg bg-blue-500 text-white text-xs font-bold hover:bg-blue-400 transition-all shadow-sm"
                           >
-                            ✓ Activar como Empresa
+                            ✓ Empresa
                           </button>
                           <button
-                            onClick={() => activateUserAccount(user.id, 'model')}
-                            className="flex-1 py-2 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all shadow-md"
+                            onClick={() => activateUserAccount(u.id, 'model')}
+                            className="px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-bold hover:bg-purple-500 transition-all shadow-sm"
                           >
-                            ✓ Activar como Promotora
-                          </button>
-                          <button
-                            onClick={() => rejectUserAccount(user.id)}
-                            className="py-2 px-3 rounded-xl bg-zinc-800 hover:bg-red-950 text-zinc-400 hover:text-red-400 text-xs font-semibold transition-colors"
-                          >
-                            Rechazar
+                            ✓ Promotora
                           </button>
                         </div>
                       </div>
@@ -898,12 +1572,26 @@ export const AdminDashboard: React.FC = () => {
                           <td className="p-3 text-zinc-400 font-mono text-[11px]">{u.activatedBy || 'Sistema'}</td>
                           <td className="p-3 text-right">
                             {u.role !== 'superadmin' && (
-                              <button
-                                onClick={() => rejectUserAccount(u.id)}
-                                className="text-[11px] text-zinc-500 hover:text-red-400 font-semibold"
-                              >
-                                Suspender
-                              </button>
+                              <div className="flex items-center justify-end gap-2">
+                                <select
+                                  aria-label="Cambiar Rol"
+                                  value={u.role}
+                                  onChange={(e) => activateUserAccount(u.id, e.target.value as any)}
+                                  className="text-[11px] bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-300 font-semibold focus:outline-none focus:border-[var(--color-primary)] cursor-pointer"
+                                  title="Solo el Super Admin puede cambiar el rol"
+                                >
+                                  <option value="client">Cliente</option>
+                                  <option value="empresa">Empresa</option>
+                                  <option value="model">Promotora / Modelo</option>
+                                </select>
+                                <button
+                                  onClick={() => rejectUserAccount(u.id)}
+                                  className="text-[11px] px-2.5 py-1 rounded-lg bg-red-950/40 text-red-400 hover:bg-red-900/60 font-semibold border border-red-900/50 transition-colors"
+                                  title="Suspender cuenta"
+                                >
+                                  Suspender
+                                </button>
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -1123,6 +1811,32 @@ export const AdminDashboard: React.FC = () => {
                 />
               </div>
             </div>
+
+            <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-bold text-white">
+                  <ImageIcon className="w-4 h-4 text-[var(--color-primary)]" />
+                  <span>Fondo de Cabecera (Video / Imagen en Marca de Agua)</span>
+                </div>
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  Configura el video o imágenes que se alternan detrás del título principal.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('cabecera')}
+                className="px-3 py-1.5 rounded-lg bg-[var(--color-primary)] text-black font-bold text-xs hover:brightness-110 transition-all shrink-0"
+              >
+                Configurar Fondo →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: FONDO DE CABECERA (MARCA DE AGUA, VIDEO / SLIDESHOW) */}
+        {activeTab === 'cabecera' && isSuperAdmin && (
+          <div className="max-w-4xl mx-auto">
+            <HeroBannerSettings />
           </div>
         )}
 

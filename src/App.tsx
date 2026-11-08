@@ -5,6 +5,7 @@ import { HeroSection } from './components/HeroSection';
 import { CatalogSection } from './components/CatalogSection';
 import { EventsSection } from './components/EventsSection';
 import { LiveStreamSection } from './components/LiveStreamSection';
+import { SocialWallSection } from './components/SocialWallSection';
 import { AdminDashboard } from './components/AdminDashboard';
 import { UserDashboard } from './components/UserDashboard';
 import { LoginPage } from './components/LoginPage';
@@ -13,6 +14,8 @@ import { DirectChatDrawer } from './components/DirectChatDrawer';
 import { ReviewModal } from './components/ReviewModal';
 import { SettingsModal } from './components/SettingsModal';
 import { GoogleAuthModal } from './components/GoogleAuthModal';
+import { RoleSelectionModal } from './components/RoleSelectionModal';
+import { SuspendedAccountGate } from './components/SuspendedAccountGate';
 import { PushNotificationDrawer } from './components/PushNotificationDrawer';
 import { MobileTabBar } from './components/MobileTabBar';
 import { Footer } from './components/Footer';
@@ -21,6 +24,7 @@ import { CheckCircle2 } from 'lucide-react';
 
 const MainLayout: React.FC = () => {
   const {
+    currentUser,
     activeTab,
     selectedModel,
     setSelectedModel,
@@ -36,6 +40,11 @@ const MainLayout: React.FC = () => {
   const [selectedCity, setSelectedCity] = useState('Todas');
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [reviewTargetModel, setReviewTargetModel] = useState<ModelProfile | null>(null);
+
+  // TOTAL LOCKOUT: Suspended accounts cannot access ANY section or role
+  if (currentUser?.status === 'suspended') {
+    return <SuspendedAccountGate />;
+  }
 
   return (
     <div className="min-h-screen bg-black text-slate-100 flex flex-col selection:bg-[var(--color-primary)] selection:text-black">
@@ -62,6 +71,8 @@ const MainLayout: React.FC = () => {
             />
           </>
         )}
+
+        {activeTab === 'parati' && <SocialWallSection />}
 
         {activeTab === 'eventos' && <EventsSection />}
 
@@ -115,6 +126,12 @@ const MainLayout: React.FC = () => {
 
       {/* Google OAuth & 2FA Modal */}
       <GoogleAuthModal />
+
+      {/* Role Selection Modal for First-time / Standby Users */}
+      <RoleSelectionModal />
+
+      {/* Suspended Account Locked Gate (Full Lockout until Admin Approval) */}
+      <SuspendedAccountGate />
 
       {/* Global Toast Notification */}
       {toastMessage && (

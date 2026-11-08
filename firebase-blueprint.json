@@ -2,20 +2,27 @@
   "entities": {
     "user": {
       "title": "User",
-      "description": "User profile with role and authentication details",
+      "description": "User profile with role, status, and authentication details",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
         "name": { "type": "string", "maxLength": 100 },
         "email": { "type": "string", "maxLength": 150 },
         "avatar": { "type": "string", "maxLength": 500000 },
-        "role": { "type": "string", "enum": ["superadmin", "admin", "model", "client"] },
+        "role": { "type": "string", "enum": ["superadmin", "admin", "model", "client", "empresa"] },
+        "status": { "type": "string", "enum": ["active", "standby", "suspended"] },
+        "requestedRole": { "type": "string", "enum": ["client", "model", "empresa"] },
+        "clientType": { "type": "string", "enum": ["empresa", "particular"] },
+        "companyName": { "type": "string", "maxLength": 150 },
+        "companyRif": { "type": "string", "maxLength": 50 },
         "twoFactorEnabled": { "type": "boolean" },
         "isVerified": { "type": "boolean" },
         "phone": { "type": "string", "maxLength": 30 },
-        "createdAt": { "type": "string", "maxLength": 50 }
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "activatedAt": { "type": "string", "maxLength": 50 },
+        "activatedBy": { "type": "string", "maxLength": 150 }
       },
-      "required": ["id", "name", "email", "role"]
+      "required": ["id", "name", "email", "role", "status"]
     },
     "model": {
       "title": "ModelProfile",
@@ -31,6 +38,7 @@
         "roleLabel": { "type": "string", "maxLength": 100 },
         "verified": { "type": "boolean" },
         "featured": { "type": "boolean" },
+        "isVip": { "type": "boolean" },
         "isPaused": { "type": "boolean" },
         "rating": { "type": "number" },
         "reviewCount": { "type": "number" },
@@ -74,6 +82,30 @@
         "organizer": { "type": "string", "maxLength": 100 }
       },
       "required": ["id", "title", "date", "location", "status"]
+    },
+    "config": {
+      "title": "AgencyConfig",
+      "description": "Global agency branding, cities, and live stream settings",
+      "type": "object",
+      "properties": {
+        "primaryColor": { "type": "string", "maxLength": 30 },
+        "brandName": { "type": "string", "maxLength": 100 }
+      }
+    },
+    "wallPost": {
+      "title": "WallPost",
+      "description": "Daily social post on Para Ti wall with reactions and comments",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "authorId": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 100 },
+        "authorRole": { "type": "string", "enum": ["superadmin", "admin", "model", "client", "empresa"] },
+        "text": { "type": "string", "maxLength": 2000 },
+        "imageUrl": { "type": "string", "maxLength": 500000 },
+        "createdDateString": { "type": "string", "maxLength": 20 }
+      },
+      "required": ["id", "authorId", "authorName", "text", "createdDateString"]
     }
   },
   "firestore": {
@@ -92,6 +124,14 @@
     "/events/{eventId}": {
       "schema": "event",
       "description": "Events and casting calls"
+    },
+    "/config/{configId}": {
+      "schema": "config",
+      "description": "Global branding and settings configuration"
+    },
+    "/wall/{postId}": {
+      "schema": "wallPost",
+      "description": "Real-time social wall posts with photo, text, reactions, and comments"
     }
   }
 }

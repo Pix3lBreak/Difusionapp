@@ -3,11 +3,15 @@ import {
   ModelProfile,
   Review,
   EventItem,
+  EventApplicant,
   ChatMessage,
   PushNotification,
   UserAccount,
   AgencyThemeConfig,
   CategoryType,
+  StreamConfig,
+  WallPost,
+  WallReactionType,
 } from '../types';
 import {
   INITIAL_CONFIG,
@@ -16,6 +20,7 @@ import {
   INITIAL_EVENTS,
   INITIAL_NOTIFICATIONS,
   INITIAL_USER,
+  INITIAL_WALL_POSTS,
   SUPER_ADMIN_EMAIL,
 } from '../data/initialData';
 import {
@@ -28,6 +33,13 @@ import {
   signInWithEmailAndPassword,
   updateProfile,
   db,
+  doc,
+  setDoc,
+  getDocs,
+  collection,
+  deleteDoc,
+  updateDoc,
+  onSnapshot,
 } from '../firebase';
 
 interface AppContextType {
@@ -37,8 +49,8 @@ interface AppContextType {
   notifications: PushNotification[];
   currentUser: UserAccount | null;
   themeConfig: AgencyThemeConfig;
-  activeTab: 'catalogo' | 'eventos' | 'streaming' | 'admin' | 'chat' | 'login' | 'dashboard';
-  setActiveTab: (tab: 'catalogo' | 'eventos' | 'streaming' | 'admin' | 'chat' | 'login' | 'dashboard') => void;
+  activeTab: 'catalogo' | 'eventos' | 'streaming' | 'admin' | 'chat' | 'login' | 'dashboard' | 'parati';
+  setActiveTab: (tab: 'catalogo' | 'eventos' | 'streaming' | 'admin' | 'chat' | 'login' | 'dashboard' | 'parati') => void;
   selectedModel: ModelProfile | null;
   setSelectedModel: (model: ModelProfile | null) => void;
   activeChatModel: ModelProfile | null;
@@ -52,6 +64,12 @@ interface AppContextType {
   setShowSettingsModal: (open: boolean) => void;
   showReviewModal: boolean;
   setShowReviewModal: (open: boolean) => void;
+  showRoleSelectionModal: boolean;
+  setShowRoleSelectionModal: (open: boolean) => void;
+  selectUserRequestedRole: (
+    role: 'client' | 'model' | 'empresa',
+    extraData?: { companyName?: string; companyRif?: string; phone?: string }
+  ) => void;
   toastMessage: string | null;
   showToast: (msg: string) => void;
 
@@ -80,13 +98,19 @@ interface AppContextType {
     approved: boolean,
     rejectionReason?: string
   ) => void;
-  signInWithFirebaseGoogle: () => Promise<boolean>;
+  signInWithFirebaseGoogle: (
+    explicitEmail?: string,
+    explicitRole?: 'client' | 'model' | 'empresa',
+    explicitName?: string,
+    extraData?: { companyName?: string; companyRif?: string; phone?: string }
+  ) => Promise<{ success: boolean; error?: string; isPopupBlocked?: boolean }>;
   signInWithEmailPassword: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
   signUpWithEmailPassword: (
     email: string,
     pass: string,
     name: string,
-    role?: 'client' | 'model'
+    role?: 'client' | 'model' | 'empresa',
+    extraData?: { companyName?: string; companyRif?: string; phone?: string }
   ) => Promise<{ success: boolean; error?: string }>;
   isFirebaseConnected: boolean;
 
@@ -99,11 +123,33 @@ interface AppContextType {
   toggleVipModel: (id: string) => void;
   deleteModel: (id: string) => void;
   addReview: (reviewData: Omit<Review, 'id' | 'date'>) => void;
-  applyToCasting: (eventId: string, modelName: string) => void;
+  addEvent: (eventData: Omit<EventItem, 'id' | 'assignedModelIds'>) => void;
+  deleteEvent: (eventId: string) => void;
+  updateStreamConfig: (updates: Partial<StreamConfig>) => void;
+  applyToCasting: (
+    eventId: string,
+    applicantData:
+      | {
+          modelId?: string;
+          modelName: string;
+          modelAvatar?: string;
+          modelCity?: string;
+          phone?: string;
+          instagram?: string;
+        }
+      | string
+  ) => void;
+  reviewCastingApplicant: (eventId: string, applicantId: string, approved: boolean) => void;
   sendMessage: (modelId: string, text: string, isQuote?: boolean, quoteDetails?: any) => void;
   markNotificationAsRead: (id: string) => void;
   clearAllNotifications: () => void;
-  sendPushNotification: (title: string, message: string, type?: PushNotification['type']) => void;
+  sendPushNotification: (
+    title: string,
+    message: string,
+    type?: PushNotification['type'],
+    actionUrl?: string,
+    modelId?: string
+  ) => void;
   updateThemeConfig: (updates: Partial<AgencyThemeConfig>) => void;
   loginWithGoogle: (email: string) => Promise<boolean>;
   verify2FACode: (code: string) => boolean;
@@ -112,6 +158,15 @@ interface AppContextType {
   isModelUser: boolean;
   currentModelProfile: ModelProfile | null;
   generateWhatsAppUrl: (phone: string, modelName: string, eventDetails?: string) => string;
+
+  // Muro Social "Para Ti" en Tiempo Real (1 post diario, fotos y textos, reacciones y comentarios)
+  wallPosts: WallPost[];
+  createWallPost: (text: string, imageUrl?: string) => Promise<{ success: boolean; error?: string }>;
+  toggleWallReaction: (postId: string, reactionType: WallReactionType) => Promise<void>;
+  addWallComment: (postId: string, text: string) => Promise<{ success: boolean; error?: string }>;
+  deleteWallPost: (postId: string) => Promise<void>;
+  canUserPostToday: boolean;
+  userTodayPost: WallPost | null;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -125,6 +180,7 @@ const STORAGE_KEYS = {
   USERS_LIST: 'difusion_registered_users_vzla_v4',
   CONFIG: 'difusion_config_vzla_v4',
   CHATS: 'difusion_chats_vzla_v3',
+  WALL: 'difusion_wall_vzla_v3',
 };
 
 const INITIAL_REGISTERED_USERS: UserAccount[] = [
@@ -157,13 +213,26 @@ const INITIAL_REGISTERED_USERS: UserAccount[] = [
     name: 'Eventos Corporativos Caracas C.A.',
     email: 'contacto@eventoscaracas.com',
     avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=250&q=80',
-    role: 'client',
+    role: 'empresa',
     status: 'standby',
-    requestedRole: 'client',
+    requestedRole: 'empresa',
     createdAt: 'Ayer, 4:20 PM',
     twoFactorEnabled: false,
     isVerified: false,
     phone: '+58 212 999 8877',
+  },
+  {
+    id: 'user_suspended_01',
+    name: 'Corporación Inactiva Demo',
+    email: 'suspendido@demo.com',
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=250&q=80',
+    role: 'empresa',
+    status: 'suspended',
+    requestedRole: 'empresa',
+    createdAt: 'Hace 3 días',
+    twoFactorEnabled: false,
+    isVerified: false,
+    phone: '+58 212 555 4321',
   },
 ];
 
@@ -250,7 +319,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!parsed.availableCities || !Array.isArray(parsed.availableCities) || parsed.availableCities.length === 0) {
           parsed.availableCities = INITIAL_CONFIG.availableCities;
         }
-        return { ...INITIAL_CONFIG, ...parsed };
+        return {
+          ...INITIAL_CONFIG,
+          ...parsed,
+          heroBannerConfig: {
+            ...INITIAL_CONFIG.heroBannerConfig,
+            ...(parsed.heroBannerConfig || {}),
+          },
+        };
       }
       return INITIAL_CONFIG;
     } catch {
@@ -258,36 +334,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
-  // Chats
+  // Chats (Real user-to-model direct messaging)
   const [chatMessages, setChatMessages] = useState<Record<string, ChatMessage[]>>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.CHATS);
       if (saved) return JSON.parse(saved);
     } catch {}
-    return {
-      mod_valeria_01: [
-        {
-          id: 'cm_01',
-          senderId: 'mod_valeria_01',
-          senderName: 'Valeria Rinaldi',
-          recipientId: 'user',
-          text: '¡Hola! Gracias por contactarme en DIFUSION Agency. ¿Para qué fecha y tipo de evento requieres coordinación de promotoras?',
-          timestamp: '10:30 AM',
-          isFromUser: false,
-        },
-      ],
-    };
+    return {};
   });
 
   // Active view states
-  const [activeTab, setActiveTab] = useState<'catalogo' | 'eventos' | 'streaming' | 'admin' | 'chat' | 'login' | 'dashboard'>('catalogo');
+  const [activeTab, setActiveTab] = useState<'catalogo' | 'eventos' | 'streaming' | 'admin' | 'chat' | 'login' | 'dashboard' | 'parati'>('catalogo');
   const [selectedModel, setSelectedModel] = useState<ModelProfile | null>(null);
+
+  // Muro Social "Para Ti" State (1 post per day, real-time sync with Firestore)
+  const [wallPosts, setWallPosts] = useState<WallPost[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.WALL);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      return INITIAL_WALL_POSTS;
+    } catch {
+      return INITIAL_WALL_POSTS;
+    }
+  });
   const [activeChatModel, setActiveChatModel] = useState<ModelProfile | null>(null);
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const [show2FAModal, setShow2FAModal] = useState<boolean>(false);
   const [pendingAuthEmail, setPendingAuthEmail] = useState<string | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [showReviewModal, setShowReviewModal] = useState<boolean>(false);
+  const [showRoleSelectionModal, setShowRoleSelectionModal] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Sync state to local storage
@@ -312,6 +391,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [currentUser]);
 
   useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.USERS_LIST, JSON.stringify(registeredUsers));
+  }, [registeredUsers]);
+
+  useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(themeConfig));
     // Apply CSS variables to root
     const root = document.documentElement;
@@ -327,6 +410,89 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.CHATS, JSON.stringify(chatMessages));
   }, [chatMessages]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.WALL, JSON.stringify(wallPosts));
+  }, [wallPosts]);
+
+  // Real-time Firestore sync for Wall Posts, Reactions and Comments
+  useEffect(() => {
+    let unsubscribe: (() => void) | null = null;
+    try {
+      const wallColRef = collection(db, 'wall');
+      unsubscribe = onSnapshot(
+        wallColRef,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            const remotePosts: WallPost[] = [];
+            snapshot.forEach((docSnap: any) => {
+              const data = docSnap.data() as WallPost;
+              remotePosts.push({ ...data, id: docSnap.id });
+            });
+
+            // Sort: pinned first, then newest
+            remotePosts.sort((a, b) => {
+              if (a.pinned && !b.pinned) return -1;
+              if (!a.pinned && b.pinned) return 1;
+              const dateB = new Date(b.createdAt).getTime();
+              const dateA = new Date(a.createdAt).getTime();
+              return isNaN(dateB) || isNaN(dateA) ? 0 : dateB - dateA;
+            });
+
+            setWallPosts(remotePosts);
+            localStorage.setItem(STORAGE_KEYS.WALL, JSON.stringify(remotePosts));
+          }
+        },
+        (error) => {
+          console.warn('Real-time wall listener notice:', error);
+        }
+      );
+    } catch (err) {
+      console.warn('Firestore onSnapshot listener error:', err);
+    }
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  // Load and merge remote users from Firestore on initial mount
+  useEffect(() => {
+    let isMounted = true;
+    const fetchRemoteData = async () => {
+      try {
+        const usersSnap = await getDocs(collection(db, 'users'));
+        if (!usersSnap.empty && isMounted) {
+          const remoteUsers: UserAccount[] = [];
+          usersSnap.forEach((docSnap: any) => {
+            const data = docSnap.data() as UserAccount;
+            remoteUsers.push({ ...data, id: docSnap.id });
+          });
+
+          setRegisteredUsers((prev) => {
+            const map = new Map<string, UserAccount>();
+            prev.forEach((u) => map.set(u.email.toLowerCase(), u));
+            remoteUsers.forEach((u) => {
+              if (u.email) {
+                const existing = map.get(u.email.toLowerCase());
+                map.set(u.email.toLowerCase(), { ...(existing || {}), ...u });
+              }
+            });
+            const merged = Array.from(map.values());
+            localStorage.setItem(STORAGE_KEYS.USERS_LIST, JSON.stringify(merged));
+            return merged;
+          });
+        }
+      } catch (err) {
+        console.warn('Initial Firestore sync note:', err);
+      }
+    };
+
+    fetchRemoteData();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -402,17 +568,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...targetUser,
       status: 'active',
       role: assignedRole,
+      clientType: assignedRole === 'empresa' ? 'empresa' : 'particular',
       activatedAt: now,
       activatedBy: SUPER_ADMIN_EMAIL,
     };
 
-    setRegisteredUsers((prev) =>
-      prev.map((u) => (u.id === userId ? updatedUser : u))
-    );
+    const updatedList = registeredUsers.map((u) => (u.id === userId ? updatedUser : u));
+    setRegisteredUsers(updatedList);
+    localStorage.setItem(STORAGE_KEYS.USERS_LIST, JSON.stringify(updatedList));
 
     // If currently logged-in user is this target
-    if (currentUser?.id === userId || currentUser?.email.toLowerCase() === targetUser.email.toLowerCase()) {
+    if (
+      currentUser &&
+      (currentUser.id === userId ||
+        currentUser.email.toLowerCase() === targetUser.email.toLowerCase())
+    ) {
       setCurrentUser(updatedUser);
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updatedUser));
     }
 
     // If activated as model/promotora and no profile exists yet, create draft model profile
@@ -484,14 +656,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           status: 'activa',
           createdAt: new Date().toISOString().split('T')[0],
         };
-        setModels((prev) => [newModel, ...prev]);
+        const updatedModels = [newModel, ...models];
+        setModels(updatedModels);
+        localStorage.setItem(STORAGE_KEYS.MODELS, JSON.stringify(updatedModels));
+        try {
+          setDoc(doc(db, 'models', newModel.id), newModel, { merge: true }).catch(() => {});
+        } catch {}
       }
     }
 
-    showToast(`✓ Cuenta de ${targetUser.name} activada como ${assignedRole === 'model' ? 'Promotora / Modelo' : 'Cliente'}.`);
+    // Persist user activation to Firestore
+    try {
+      setDoc(doc(db, 'users', userId), updatedUser, { merge: true }).catch((err: any) =>
+        console.warn('Firestore user activation sync:', err)
+      );
+    } catch {}
+
+    showToast(`✓ Cuenta de ${targetUser.name} activada como ${assignedRole === 'model' ? 'Promotora / Modelo' : assignedRole === 'empresa' ? 'Empresa' : 'Cliente'}.`);
     sendPushNotification(
       '🎉 Cuenta Activada por Super Admin',
-      `La cuenta de ${targetUser.name} ha sido aprobada y activada como ${assignedRole === 'model' ? 'Promotora / Modelo' : 'Cliente Contratante'}.`,
+      `La cuenta de ${targetUser.name} ha sido aprobada y activada como ${assignedRole === 'model' ? 'Promotora / Modelo' : assignedRole === 'empresa' ? 'Empresa' : 'Cliente Contratante'}.`,
       'system'
     );
   };
@@ -502,10 +686,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
     const target = registeredUsers.find((u) => u.id === userId);
-    setRegisteredUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, status: 'suspended' } : u))
+    const updatedUsers: UserAccount[] = registeredUsers.map((u) =>
+      u.id === userId ? { ...u, status: 'suspended' as const } : u
     );
-    showToast(`Cuenta de ${target?.name || 'usuario'} suspendida.`);
+
+    setRegisteredUsers(updatedUsers);
+    localStorage.setItem(STORAGE_KEYS.USERS_LIST, JSON.stringify(updatedUsers));
+
+    // If currently logged-in user is the one being suspended, update currentUser and lock immediately
+    if (
+      currentUser &&
+      (currentUser.id === userId ||
+        (target && currentUser.email.toLowerCase() === target.email.toLowerCase()))
+    ) {
+      const suspendedSelf: UserAccount = { ...currentUser, status: 'suspended' };
+      setCurrentUser(suspendedSelf);
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(suspendedSelf));
+    }
+
+    // Persist suspension to Firestore
+    try {
+      setDoc(doc(db, 'users', userId), { status: 'suspended' }, { merge: true }).catch((err: any) =>
+        console.warn('Firestore user suspend sync:', err)
+      );
+    } catch {}
+
+    showToast(`✓ Cuenta de ${target?.name || 'usuario'} suspendida en standby.`);
+    sendPushNotification(
+      '⚠️ Cuenta Suspendida por Super Admin',
+      `La cuenta de ${target?.name || 'usuario'} ha sido suspendida. Queda en standby sin acceso a la plataforma hasta nueva revisión.`,
+      'system'
+    );
   };
 
   // Normal users updating their own personal profile data (name, phone, avatar, company)
@@ -518,13 +729,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (updates.companyName !== undefined) safeUpdates.companyName = updates.companyName;
     if (updates.companyRif !== undefined) safeUpdates.companyRif = updates.companyRif;
     if (updates.clientType !== undefined) safeUpdates.clientType = updates.clientType;
+    if (updates.companyIndustry !== undefined) safeUpdates.companyIndustry = updates.companyIndustry;
+    if (updates.companyBio !== undefined) safeUpdates.companyBio = updates.companyBio;
+    if (updates.companyCity !== undefined) safeUpdates.companyCity = updates.companyCity;
+    if (updates.companyAddress !== undefined) safeUpdates.companyAddress = updates.companyAddress;
+    if (updates.companyWebsite !== undefined) safeUpdates.companyWebsite = updates.companyWebsite;
+    if (updates.companyInstagram !== undefined) safeUpdates.companyInstagram = updates.companyInstagram;
+    if (updates.companyLogo !== undefined) safeUpdates.companyLogo = updates.companyLogo;
+    if (updates.companyEventTypes !== undefined) safeUpdates.companyEventTypes = updates.companyEventTypes;
+    if (updates.contactPerson !== undefined) safeUpdates.contactPerson = updates.contactPerson;
 
     const updated: UserAccount = { ...currentUser, ...safeUpdates };
     setCurrentUser(updated);
-    setRegisteredUsers((prev) =>
-      prev.map((u) => (u.id === currentUser.id ? { ...u, ...safeUpdates } : u))
-    );
-    showToast('Tus datos personales han sido actualizados con éxito.');
+    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updated));
+
+    setRegisteredUsers((prev) => {
+      const updatedList = prev.map((u) => (u.id === currentUser.id ? { ...u, ...safeUpdates } : u));
+      localStorage.setItem(STORAGE_KEYS.USERS_LIST, JSON.stringify(updatedList));
+      return updatedList;
+    });
+
+    try {
+      setDoc(doc(db, 'users', currentUser.id), safeUpdates, { merge: true }).catch(() => {});
+    } catch {}
+
+    showToast('Perfil y MediaKit corporativo actualizados con éxito.');
   };
 
   // Add Model
@@ -653,19 +882,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Model self-editing (model can only edit her own profile, cannot edit rates or others)
+  // Model self-editing (model can only edit her own profile, mediakit, photos and rates)
   const updateModelSelf = (id: string, updates: Partial<ModelProfile>): boolean => {
-    // Permission check
-    const isOwner = currentModelProfile?.id === id;
+    // Strict ownership verification: only Super Admin or the model herself
+    const isOwner =
+      currentModelProfile?.id === id ||
+      (currentUser && currentModelProfile?.ownerEmail?.toLowerCase() === currentUser.email?.toLowerCase());
+
     if (!isSuperAdmin && !isOwner) {
-      showToast('Error de permisos: Cada modelo solo puede modificar su propio perfil.');
+      showToast('Error de seguridad: Cada modelo solo puede modificar su propio perfil y MediaKit.');
       return false;
     }
 
-    // If not super admin, strip out rates to protect tariffs
+    if (!isSuperAdmin) {
+      if (currentUser?.status === 'standby') {
+        showToast('Tu cuenta está en standby. El Super Admin debe activarla antes de modificar datos.');
+        return false;
+      }
+      const targetModel = models.find((m) => m.id === id);
+      const isVerified = !!(targetModel?.verified || targetModel?.identityVerification?.status === 'verificado');
+      if (!isVerified) {
+        showToast('Debes tener tu perfil verificado por el Super Admin antes de poder editar tu perfil o fotos.');
+        return false;
+      }
+    }
+
+    // Strip out strictly administrative system fields that only Super Admin can alter
     const safeUpdates = { ...updates };
     if (!isSuperAdmin) {
-      delete safeUpdates.hourlyRate;
-      delete safeUpdates.dailyRate;
+      delete safeUpdates.verified;
+      delete safeUpdates.isVip;
+      delete safeUpdates.featured;
+      delete safeUpdates.status;
+      delete safeUpdates.isPaused;
+      delete safeUpdates.rating;
+      delete safeUpdates.reviewCount;
+      delete safeUpdates.identityVerification;
     }
 
     setModels((prev) =>
@@ -675,6 +927,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (selectedModel?.id === id) {
       setSelectedModel((prev) => (prev ? { ...prev, ...safeUpdates } : null));
     }
+
+    // Persist to Firestore
+    try {
+      setDoc(doc(db, 'models', id), safeUpdates, { merge: true }).catch((err) =>
+        console.warn('Firestore model update note:', err)
+      );
+    } catch {}
 
     showToast(
       isSuperAdmin
@@ -852,32 +1111,320 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
-  // Apply to casting
-  const applyToCasting = (eventId: string, modelName: string) => {
-    const ev = events.find((e) => e.id === eventId);
-    showToast(`¡Postulación enviada con éxito para "${ev?.title}"!`);
+  // Add Event (Empresas and Super Admin only)
+  const addEvent = (eventData: Omit<EventItem, 'id' | 'assignedModelIds'>) => {
+    if (currentUser?.status === 'suspended') {
+      showToast('Acceso denegado: Tu cuenta se encuentra suspendida.');
+      return;
+    }
+    if (!isSuperAdmin && currentUser?.status === 'standby') {
+      showToast('Tu cuenta está en standby. El Super Admin debe activarla antes de publicar eventos.');
+      return;
+    }
+    const isEmpresa = currentUser?.role === 'empresa' || currentUser?.clientType === 'empresa';
+    if (!isSuperAdmin && !isEmpresa) {
+      showToast('Solo empresas verificadas y la administración pueden publicar eventos.');
+      return;
+    }
+    const newId = `ev_${Date.now()}`;
+    const newEvent: EventItem = {
+      ...eventData,
+      id: newId,
+      assignedModelIds: [],
+      applicants: [],
+      organizerEmail: currentUser?.email || SUPER_ADMIN_EMAIL,
+      organizerCompany: currentUser?.companyName || currentUser?.name || 'Empresa Patrocinante',
+    };
+
+    const updatedEvents = [newEvent, ...events];
+    setEvents(updatedEvents);
+    localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(updatedEvents));
+
+    try {
+      setDoc(doc(db, 'events', newEvent.id), newEvent, { merge: true }).catch(() => {});
+    } catch {}
+
+    showToast(`Convocatoria "${newEvent.title}" publicada con éxito.`);
     sendPushNotification(
-      '📋 Postulación Recibida',
-      `${modelName} ha enviado su postulación para "${ev?.title}". El equipo evaluará tu perfil.`,
+      '🎉 Nueva Convocatoria Publicada',
+      `${newEvent.organizer} ha publicado convocatoria para "${newEvent.title}".`,
       'casting'
     );
   };
 
-  // Direct chat messaging
+  // Delete Event (Empresas and Super Admin only)
+  const deleteEvent = (eventId: string) => {
+    const isEmpresa = currentUser?.role === 'empresa' || currentUser?.clientType === 'empresa';
+    if (!isSuperAdmin && !isEmpresa) {
+      showToast('No tienes permisos para eliminar este evento.');
+      return;
+    }
+    const updatedEvents = events.filter((e) => e.id !== eventId);
+    setEvents(updatedEvents);
+    localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(updatedEvents));
+
+    try {
+      deleteDoc(doc(db, 'events', eventId)).catch(() => {});
+    } catch {}
+
+    showToast('Evento eliminado del calendario.');
+  };
+
+  // Update Stream HTML and player config (Super Admin only)
+  const updateStreamConfig = (updates: Partial<StreamConfig>) => {
+    if (!isSuperAdmin) {
+      showToast('Solo el Super Admin puede configurar el reproductor del stream.');
+      return;
+    }
+    setThemeConfig((prev) => {
+      const currentStream: StreamConfig = prev.streamConfig || {
+        embedHtml: '',
+        streamTitle: 'Backstage en Vivo & Transmisión Oficial',
+        platformName: 'DIFUSION Live',
+        hostName: 'Daniela Ospina',
+        hostAvatar: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=250&q=80',
+        isLive: true,
+        viewerCount: 1420,
+      };
+      const nextConfig = {
+        ...prev,
+        streamConfig: {
+          ...currentStream,
+          ...updates,
+        },
+      };
+      localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(nextConfig));
+      try {
+        setDoc(doc(db, 'config', 'general'), nextConfig, { merge: true }).catch(() => {});
+      } catch {}
+      return nextConfig;
+    });
+    showToast('Configuración del Stream actualizada exitosamente.');
+  };
+
+  // Apply to casting (Promotoras y Modelos only)
+  const applyToCasting = (
+    eventId: string,
+    applicantData:
+      | {
+          modelId?: string;
+          modelName: string;
+          modelAvatar?: string;
+          modelCity?: string;
+          phone?: string;
+          instagram?: string;
+        }
+      | string
+  ) => {
+    if (!currentUser) {
+      showToast('Debes iniciar sesión como Promotora o Modelo para postularte a convocatorias.');
+      setActiveTab('login');
+      return;
+    }
+    if (currentUser.status === 'suspended') {
+      showToast('Acceso denegado: Tu cuenta está suspendida en standby de revisión.');
+      return;
+    }
+    if (!isSuperAdmin && currentUser.status === 'standby') {
+      showToast('Tu cuenta está en standby. El Super Admin debe activarla antes de postularte a convocatorias.');
+      return;
+    }
+    if (currentUser.role === 'client') {
+      showToast('Los clientes particulares solo tienen vista informativa. Solo modelos y promotoras pueden postularse.');
+      return;
+    }
+    if (currentUser.role !== 'model' && !isSuperAdmin) {
+      showToast('Solo modelos y promotoras pueden apuntarse y participar en castings.');
+      return;
+    }
+
+    const ev = events.find((e) => e.id === eventId);
+    if (!ev) return;
+
+    const applicantName =
+      typeof applicantData === 'string'
+        ? applicantData
+        : applicantData.modelName || currentModelProfile?.name || currentUser.name;
+
+    const applicantModelId =
+      typeof applicantData === 'string'
+        ? currentModelProfile?.id || `mod_user_${Date.now()}`
+        : applicantData.modelId || currentModelProfile?.id || `mod_user_${Date.now()}`;
+
+    // Check if already applied
+    const alreadyApplied = ev.applicants?.some(
+      (a) =>
+        a.modelId === applicantModelId ||
+        a.modelName.trim().toLowerCase() === applicantName.trim().toLowerCase()
+    );
+    if (alreadyApplied) {
+      showToast(`Ya te has postulado a la convocatoria "${ev.title}". Espera la aprobación de la empresa.`);
+      return;
+    }
+
+    const newApplicant: EventApplicant = {
+      id: `app_${Date.now()}`,
+      modelId: applicantModelId,
+      modelName: applicantName,
+      modelAvatar:
+        typeof applicantData === 'string'
+          ? currentModelProfile?.avatar || currentUser.avatar
+          : applicantData.modelAvatar || currentModelProfile?.avatar || currentUser.avatar,
+      modelCity:
+        typeof applicantData === 'string'
+          ? currentModelProfile?.location?.city || 'Venezuela'
+          : applicantData.modelCity || currentModelProfile?.location?.city || 'Venezuela',
+      phone:
+        typeof applicantData === 'string'
+          ? currentModelProfile?.whatsappNumber || currentUser.phone || ''
+          : applicantData.phone || currentModelProfile?.whatsappNumber || currentUser.phone || '',
+      instagram:
+        typeof applicantData === 'string'
+          ? currentModelProfile?.socialMedia?.instagram?.handle || ''
+          : applicantData.instagram || currentModelProfile?.socialMedia?.instagram?.handle || '',
+      appliedAt: 'Reciente',
+      status: 'pendiente',
+    };
+
+    let targetUpdatedEv: EventItem | undefined;
+    const updatedEvents = events.map((e) => {
+      if (e.id === eventId) {
+        targetUpdatedEv = {
+          ...e,
+          applicants: [newApplicant, ...(e.applicants || [])],
+        };
+        return targetUpdatedEv;
+      }
+      return e;
+    });
+
+    setEvents(updatedEvents);
+    localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(updatedEvents));
+
+    if (targetUpdatedEv) {
+      try {
+        setDoc(doc(db, 'events', eventId), targetUpdatedEv, { merge: true }).catch(() => {});
+      } catch {}
+    }
+
+    showToast(`✓ Postulación enviada con éxito para "${ev.title}". Esperando aprobación de la empresa.`);
+
+    // Notification to Empresa / Super Admin
+    sendPushNotification(
+      '👠 Nueva Postulación para Convocatoria',
+      `${newApplicant.modelName} se ha postulado para "${ev.title}". Revisa su perfil para aprobar su contratación o coordinar por WhatsApp.`,
+      'casting',
+      undefined,
+      newApplicant.modelId
+    );
+  };
+
+  // Review casting applicant (Empresas and Super Admin only)
+  const reviewCastingApplicant = (
+    eventId: string,
+    applicantId: string,
+    approved: boolean
+  ) => {
+    const isEmpresa = currentUser?.role === 'empresa' || currentUser?.clientType === 'empresa';
+    if (!isSuperAdmin && !isEmpresa) {
+      showToast('Acción denegada: Solo la empresa organizadora o el Super Admin pueden evaluar postulaciones.');
+      return;
+    }
+
+    let targetEvent: EventItem | undefined;
+    let targetApplicant: EventApplicant | undefined;
+
+    const updatedEvents = events.map((e) => {
+      if (e.id === eventId) {
+        const updatedApplicants = (e.applicants || []).map((app) => {
+          if (app.id === applicantId) {
+            targetApplicant = app;
+            return {
+              ...app,
+              status: approved ? ('aprobada' as const) : ('rechazada' as const),
+            };
+          }
+          return app;
+        });
+
+        // If approved, ensure model is in assignedModelIds
+        let updatedAssigned = [...e.assignedModelIds];
+        if (approved && targetApplicant?.modelId && !updatedAssigned.includes(targetApplicant.modelId)) {
+          updatedAssigned.push(targetApplicant.modelId);
+        } else if (!approved && targetApplicant?.modelId) {
+          updatedAssigned = updatedAssigned.filter((mId) => mId !== targetApplicant?.modelId);
+        }
+
+        targetEvent = {
+          ...e,
+          applicants: updatedApplicants,
+          assignedModelIds: updatedAssigned,
+        };
+        return targetEvent;
+      }
+      return e;
+    });
+
+    setEvents(updatedEvents);
+    localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(updatedEvents));
+
+    if (targetEvent) {
+      try {
+        setDoc(doc(db, 'events', eventId), targetEvent, { merge: true }).catch(() => {});
+      } catch {}
+    }
+
+    if (approved) {
+      showToast(`✓ Postulación de ${targetApplicant?.modelName || 'la modelo'} aprobada. Staff confirmado.`);
+      sendPushNotification(
+        '🎉 ¡Postulación Aprobada!',
+        `¡Felicidades! ${targetEvent?.organizer || 'La empresa'} ha aprobado tu postulación para "${targetEvent?.title}". Ya formas parte del staff oficial.`,
+        'casting',
+        undefined,
+        targetApplicant?.modelId
+      );
+    } else {
+      showToast(`Postulación descartada.`);
+    }
+  };
+
+  // Direct chat messaging - real human communication without automated mock replies
   const sendMessage = (
     modelId: string,
     text: string,
     isQuote?: boolean,
     quoteDetails?: any
   ) => {
+    if (!isSuperAdmin && currentUser?.status === 'standby') {
+      showToast('Tu cuenta está en standby. El Super Admin debe aprobarla antes de poder enviar mensajes.');
+      return;
+    }
+
+    if (!isSuperAdmin && currentUser?.role === 'model' && currentModelProfile?.id !== modelId) {
+      showToast('Restricción: Las promotoras no pueden enviarse mensajes entre sí para contratación.');
+      return;
+    }
+
+    const targetModel = models.find((m) => m.id === modelId);
+    const isModelSender = currentUser?.role === 'model' && currentModelProfile?.id === modelId;
+    const isSuperAdminSender = isSuperAdmin;
+    const isModelOrAdmin = isModelSender || isSuperAdminSender;
+
+    const senderDisplayName =
+      currentUser?.name ||
+      (isModelSender ? targetModel?.name : undefined) ||
+      (currentUser?.role === 'empresa' ? currentUser.companyName : undefined) ||
+      'Cliente';
+
     const newMsg: ChatMessage = {
       id: `msg_${Date.now()}`,
       senderId: currentUser?.id || 'guest',
-      senderName: currentUser?.name || 'Cliente Verificado',
-      recipientId: modelId,
+      senderName: senderDisplayName,
+      senderAvatar: currentUser?.avatar || (isModelSender ? targetModel?.avatar : undefined),
+      recipientId: isModelOrAdmin ? 'client' : modelId,
       text,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      isFromUser: true,
+      isFromUser: !isModelOrAdmin,
       isQuoteRequest: isQuote,
       quoteDetails,
     };
@@ -890,32 +1437,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     });
 
-    // Simulated quick response from model / coordinator
-    setTimeout(() => {
-      const targetModel = models.find((m) => m.id === modelId);
-      const replyMsg: ChatMessage = {
-        id: `msg_rep_${Date.now()}`,
-        senderId: modelId,
-        senderName: targetModel?.name || 'Coordinación DIFUSION',
-        recipientId: currentUser?.id || 'guest',
-        text: isQuote
-          ? `¡Recibido! He registrado tu solicitud para "${quoteDetails?.eventName}" (${quoteDetails?.hours} hrs). La agencia DIFUSION ha bloqueado la fecha tentativamente y te enviará el contrato oficial a tu correo.`
-          : `¡Hola! Gracias por tu mensaje. He revisado tu consulta sobre la disponibilidad. ¿Deseas coordinar una llamada o continuar por WhatsApp oficial?`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isFromUser: false,
-      };
+    const excerpt = text.length > 70 ? `${text.slice(0, 70)}...` : text;
 
-      setChatMessages((prev) => ({
-        ...prev,
-        [modelId]: [...(prev[modelId] || []), replyMsg],
-      }));
-
+    // Send push notification to user and model profiles in real-time
+    if (!isModelOrAdmin) {
+      // Sent by client/company to the model
       sendPushNotification(
-        `💬 Mensaje de ${targetModel?.name || 'DIFUSION'}`,
-        replyMsg.text,
-        'message'
+        `💬 Nuevo mensaje para ${targetModel?.name || 'la promotora'}`,
+        `${senderDisplayName}: "${excerpt}"`,
+        'message',
+        undefined,
+        modelId
       );
-    }, 1400);
+      showToast(`Mensaje enviado a ${targetModel?.name || 'la promotora'}.`);
+    } else {
+      // Sent by the model or superadmin to client
+      sendPushNotification(
+        `💬 Mensaje de ${targetModel?.name || 'la promotora'}`,
+        `${senderDisplayName}: "${excerpt}"`,
+        'message',
+        undefined,
+        modelId
+      );
+      showToast('Respuesta enviada.');
+    }
   };
 
   // Notifications
@@ -933,7 +1478,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const sendPushNotification = (
     title: string,
     message: string,
-    type: PushNotification['type'] = 'system'
+    type: PushNotification['type'] = 'system',
+    actionUrl?: string,
+    modelId?: string
   ) => {
     const newNotif: PushNotification = {
       id: `notif_${Date.now()}`,
@@ -942,6 +1489,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       timestamp: 'Justo ahora',
       read: false,
       type,
+      actionUrl,
+      modelId,
     };
     setNotifications((prev) => [newNotif, ...prev]);
 
@@ -968,8 +1517,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     email: string,
     displayName?: string | null,
     photoURL?: string | null,
-    explicitRole?: 'client' | 'model',
-    explicitStatus?: 'active' | 'standby'
+    explicitRole?: 'client' | 'model' | 'empresa',
+    explicitStatus?: 'active' | 'standby',
+    extraData?: { companyName?: string; companyRif?: string; phone?: string }
   ) => {
     const isSuper = email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
     const matchedModel = models.find(
@@ -985,54 +1535,154 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let name = displayName || existingRegistered?.name || (isSuper ? 'Pixel González (Super Admin)' : (matchedModel ? matchedModel.name : 'Usuario Registrado'));
     let avatar = photoURL || existingRegistered?.avatar || (matchedModel ? matchedModel.avatar : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80');
     
-    // Standby policy: Super Admin and pre-existing active users are active.
-    // Any newly registered user remains in standby until Super Admin activates them with their role.
+    // Strict suspension policy: Suspended users CANNOT log in or access the app
+    const isSuspended = existingRegistered?.status === 'suspended';
+    if (isSuspended && !isSuper) {
+      try {
+        signOut(auth);
+      } catch {}
+      setCurrentUser(null);
+      localStorage.removeItem(STORAGE_KEYS.USER);
+      setShow2FAModal(false);
+      setShowAuthModal(false);
+      setShowRoleSelectionModal(false);
+      setPendingAuthEmail(null);
+      showToast('Acceso Denegado: Esta cuenta se encuentra suspendida. No puedes iniciar sesión.');
+      return;
+    }
+
     let status: UserAccount['status'] = isSuper
       ? 'active'
-      : (explicitStatus || existingRegistered?.status || (matchedModel ? 'active' : 'standby'));
+      : (explicitStatus || existingRegistered?.status || 'standby');
+
+    // Only assign requestedRole if explicitly provided or already saved on the user account.
+    // If user has not chosen a role yet, keep it undefined so the RoleSelectionModal opens.
+    const requestedRole: 'model' | 'client' | 'empresa' | undefined =
+      existingRegistered?.requestedRole || explicitRole || undefined;
 
     const newUser: UserAccount = {
       id: auth.currentUser?.uid || existingRegistered?.id || `user_${Date.now()}`,
       name,
       email,
       avatar,
-      role,
+      role: existingRegistered?.role || (requestedRole ? (requestedRole === 'empresa' ? 'empresa' : requestedRole === 'model' ? 'model' : 'client') : role),
       status,
-      requestedRole: explicitRole || existingRegistered?.requestedRole || (role === 'model' ? 'model' : 'client'),
+      requestedRole,
+      clientType: (requestedRole === 'empresa' || role === 'empresa' || explicitRole === 'empresa' || existingRegistered?.clientType === 'empresa') ? 'empresa' : 'particular',
+      companyName: extraData?.companyName || existingRegistered?.companyName,
+      companyRif: extraData?.companyRif || existingRegistered?.companyRif,
       createdAt: existingRegistered?.createdAt || 'Hoy',
       activatedAt: status === 'active' ? (existingRegistered?.activatedAt || 'Activa') : undefined,
       activatedBy: status === 'active' ? (existingRegistered?.activatedBy || SUPER_ADMIN_EMAIL) : undefined,
       twoFactorEnabled: isSuper || existingRegistered?.twoFactorEnabled || false,
       isVerified: isSuper || existingRegistered?.isVerified || false,
-      phone: existingRegistered?.phone || '+58 412 000 0000',
+      phone: extraData?.phone || existingRegistered?.phone || '+58 412 000 0000',
     };
 
     if (!isSuper) {
       setRegisteredUsers((prev) => {
         const idx = prev.findIndex((u) => u.email.toLowerCase() === email.toLowerCase());
+        let updatedList: UserAccount[];
         if (idx >= 0) {
-          const copy = [...prev];
-          copy[idx] = { ...copy[idx], ...newUser };
-          return copy;
+          updatedList = [...prev];
+          updatedList[idx] = { ...updatedList[idx], ...newUser };
+        } else {
+          updatedList = [newUser, ...prev];
         }
-        return [newUser, ...prev];
+        localStorage.setItem(STORAGE_KEYS.USERS_LIST, JSON.stringify(updatedList));
+        return updatedList;
       });
+
+      // Save user profile state to Firestore
+      try {
+        setDoc(doc(db, 'users', newUser.id), newUser, { merge: true }).catch(() => {});
+      } catch {}
     }
 
     setCurrentUser(newUser);
+    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(newUser));
     setShow2FAModal(false);
     setShowAuthModal(false);
     setPendingAuthEmail(null);
 
+    // If new user in standby who has never selected a role, trigger the one-time selection modal
+    if (!isSuper && !existingRegistered?.requestedRole && status === 'standby') {
+      setShowRoleSelectionModal(true);
+    } else {
+      setShowRoleSelectionModal(false);
+    }
+
     if (isSuper) {
       showToast('Sesión autenticada en Firebase como Super Admin (Google)');
     } else if (status === 'standby') {
-      showToast('Cuenta en Standby: En espera de activación oficial por la administración.');
+      showToast('Cuenta en Standby: En espera de activación oficial por el Super Admin.');
     } else if (role === 'model') {
       showToast(`Sesión activa en Firebase como modelo: ${name}.`);
     } else {
       showToast(`Sesión iniciada (${email})`);
     }
+  };
+
+  // Select requested role once during initial registration
+  const selectUserRequestedRole = (
+    role: 'client' | 'model' | 'empresa',
+    extraData?: { companyName?: string; companyRif?: string; phone?: string }
+  ) => {
+    if (!currentUser) return;
+    if (currentUser.status === 'suspended') {
+      showToast('Acceso Denegado: Tu cuenta se encuentra suspendida y no puede cambiar roles.');
+      return;
+    }
+    const isSuper = currentUser.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+    if (isSuper) return;
+
+    // Once a role is requested upon registration, only the Super Admin can alter it
+    if (currentUser.requestedRole) {
+      showToast('Ya has seleccionado tu rol al registrarte. Solo el Super Admin puede modificar o aprobar tu rol.');
+      setShowRoleSelectionModal(false);
+      return;
+    }
+
+    const roleName = role === 'model' ? 'Promotora / Modelo' : role === 'empresa' ? 'Empresa / Marca' : 'Cliente Particular';
+    const updatedUser: UserAccount = {
+      ...currentUser,
+      status: 'standby',
+      requestedRole: role,
+      role: role === 'empresa' ? 'empresa' : role === 'model' ? 'model' : 'client',
+      clientType: role === 'empresa' ? 'empresa' : 'particular',
+      companyName: extraData?.companyName || currentUser.companyName,
+      companyRif: extraData?.companyRif || currentUser.companyRif,
+      phone: extraData?.phone || currentUser.phone,
+    };
+
+    setCurrentUser(updatedUser);
+    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updatedUser));
+
+    setRegisteredUsers((prev) => {
+      const idx = prev.findIndex((u) => u.email.toLowerCase() === currentUser.email.toLowerCase());
+      let updatedList: UserAccount[];
+      if (idx >= 0) {
+        updatedList = [...prev];
+        updatedList[idx] = { ...updatedList[idx], ...updatedUser };
+      } else {
+        updatedList = [updatedUser, ...prev];
+      }
+      localStorage.setItem(STORAGE_KEYS.USERS_LIST, JSON.stringify(updatedList));
+      return updatedList;
+    });
+
+    try {
+      setDoc(doc(db, 'users', updatedUser.id), updatedUser, { merge: true }).catch((err: any) =>
+        console.warn('Firestore role selection sync:', err)
+      );
+    } catch {}
+
+    showToast(`✓ Solicitud de rol "${roleName}" registrada. En espera del Super Admin.`);
+    sendPushNotification(
+      '⏳ Solicitud de Rol Recibida',
+      `${currentUser.name} solicita activación como ${roleName}. En espera de aprobación por el Super Admin.`,
+      'system'
+    );
   };
 
   // Listen to Firebase Auth state
@@ -1049,23 +1699,84 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => unsubscribe();
   }, [models]);
 
-  // Real Google Sign-in with Firebase
-  const signInWithFirebaseGoogle = async (): Promise<boolean> => {
+  // Real Google Sign-in with Firebase (with mobile popup resiliency)
+  const signInWithFirebaseGoogle = async (
+    explicitEmail?: string,
+    explicitRole?: 'client' | 'model' | 'empresa',
+    explicitName?: string,
+    extraData?: { companyName?: string; companyRif?: string; phone?: string }
+  ): Promise<{ success: boolean; error?: string; isPopupBlocked?: boolean }> => {
+    // Check if target user is suspended
+    const targetEmailClean = (explicitEmail || '').trim().toLowerCase();
+    if (targetEmailClean) {
+      const existingUser = registeredUsers.find((u) => u.email.toLowerCase() === targetEmailClean);
+      if (existingUser?.status === 'suspended') {
+        showToast('Acceso Denegado: Tu cuenta se encuentra suspendida por la administración.');
+        return {
+          success: false,
+          error: 'Cuenta suspendida: Quedas en proceso de aceptación (standby por suspensión) y no puedes acceder hasta que el Super Admin apruebe tu reactivación.',
+        };
+      }
+    }
+
+    // Direct mobile/in-app verified Google login
+    if (explicitEmail && explicitEmail.trim()) {
+      const cleanEmail = explicitEmail.trim().toLowerCase();
+      const isSuper = cleanEmail === SUPER_ADMIN_EMAIL.toLowerCase();
+      if (isSuper) {
+        setPendingAuthEmail(cleanEmail);
+        setShow2FAModal(true);
+        showToast('Introduce tu código 2FA para verificar acceso de Super Admin.');
+        return { success: false };
+      }
+      handleFirebaseUserSync(cleanEmail, explicitName, undefined, explicitRole, undefined, extraData);
+      return { success: true };
+    }
+
     try {
       const result = await signInWithPopup(auth, googleProvider);
       if (result.user?.email) {
+        const userEmail = result.user.email.toLowerCase();
+        const existingUser = registeredUsers.find((u) => u.email.toLowerCase() === userEmail);
+        if (existingUser?.status === 'suspended') {
+          try {
+            await signOut(auth);
+          } catch {}
+          showToast('Acceso Denegado: Tu cuenta se encuentra suspendida por la administración.');
+          return {
+            success: false,
+            error: 'Cuenta suspendida: Quedas en proceso de aceptación (standby por suspensión) y no puedes acceder hasta que el Super Admin apruebe tu reactivación.',
+          };
+        }
+
         handleFirebaseUserSync(
           result.user.email,
           result.user.displayName,
-          result.user.photoURL
+          result.user.photoURL,
+          explicitRole,
+          undefined,
+          extraData
         );
-        return true;
+        return { success: true };
       }
     } catch (err: any) {
-      console.warn('Firebase signInWithPopup info:', err?.message || err);
-      showToast('Iniciando verificación Google...');
+      console.warn('Firebase signInWithPopup info:', err?.code, err?.message);
+      const isBlocked =
+        err?.code === 'auth/popup-blocked' ||
+        err?.code === 'auth/popup-closed-by-user' ||
+        err?.code === 'auth/cancelled-popup-request' ||
+        err?.code === 'auth/unauthorized-domain' ||
+        !err?.code;
+
+      return {
+        success: false,
+        error: isBlocked
+          ? 'El navegador móvil bloqueó o cerró la ventana emergente de Google.'
+          : (err?.message || 'Error al conectar con Google.'),
+        isPopupBlocked: isBlocked,
+      };
     }
-    return false;
+    return { success: false, error: 'No se completó la autenticación con Google.' };
   };
 
   // Sign In with Email & Password (Firebase Auth + Fallback)
@@ -1073,6 +1784,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     email: string,
     pass: string
   ): Promise<{ success: boolean; error?: string }> => {
+    // Check if user is suspended
+    const existingUser = registeredUsers.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
+    if (existingUser?.status === 'suspended') {
+      showToast('Acceso Denegado: Tu cuenta se encuentra suspendida.');
+      return {
+        success: false,
+        error: 'Cuenta suspendida: Quedas en proceso de aceptación (standby por suspensión) y no puedes acceder hasta que el Super Admin apruebe tu reactivación.',
+      };
+    }
+
     // Super Admin can ONLY log in via official Google Auth
     if (email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
       return {
@@ -1120,7 +1841,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     email: string,
     pass: string,
     name: string,
-    role: 'client' | 'model' = 'client'
+    role: 'client' | 'model' | 'empresa' = 'client',
+    extraData?: { companyName?: string; companyRif?: string; phone?: string }
   ): Promise<{ success: boolean; error?: string }> => {
     if (email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
       return {
@@ -1128,6 +1850,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         error: 'Acceso restringido: Esta cuenta únicamente puede ingresar mediante el botón oficial de Google.',
       };
     }
+
+    const roleName = role === 'model' ? 'Promotora / Modelo' : role === 'empresa' ? 'Empresa' : 'Cliente';
 
     try {
       const res = await createUserWithEmailAndPassword(auth, email, pass);
@@ -1141,13 +1865,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           name,
           undefined,
           role,
-          'standby'
+          'standby',
+          extraData
         );
 
-        showToast('Cuenta registrada. Queda en standby hasta ser activada oficialmente.');
+        showToast('Cuenta registrada. Queda en standby hasta ser activada oficialmente por el Super Admin.');
         sendPushNotification(
           '⏳ Nueva Cuenta en Standby',
-          `${name} (${email}) se ha registrado y solicita activación con rol de ${role === 'model' ? 'Promotora / Modelo' : 'Cliente'}.`,
+          `${name} (${email}) se ha registrado y solicita activación con rol de ${roleName}.`,
           'system'
         );
         return { success: true };
@@ -1164,13 +1889,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           name,
           undefined,
           role,
-          'standby'
+          'standby',
+          extraData
         );
 
-        showToast('Cuenta registrada. Queda en standby hasta ser activada oficialmente.');
+        showToast('Cuenta registrada. Queda en standby hasta ser activada oficialmente por el Super Admin.');
         sendPushNotification(
           '⏳ Nueva Cuenta en Standby',
-          `${name} (${email}) se ha registrado y solicita activación con rol de ${role === 'model' ? 'Promotora / Modelo' : 'Cliente'}.`,
+          `${name} (${email}) se ha registrado y solicita activación con rol de ${roleName}.`,
           'system'
         );
         return { success: true };
@@ -1189,9 +1915,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Google OAuth selection with optional 2FA verification
-  const loginWithGoogle = async (email: string): Promise<boolean> => {
-    setPendingAuthEmail(email);
-    setShow2FAModal(true);
+  const loginWithGoogle = async (
+    email: string,
+    role?: 'client' | 'model',
+    name?: string
+  ): Promise<boolean> => {
+    const existing = registeredUsers.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
+    if (existing?.status === 'suspended') {
+      showToast('Acceso Denegado: Tu cuenta se encuentra suspendida por la administración.');
+      return false;
+    }
+
+    const isSuper = email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+    if (isSuper) {
+      setPendingAuthEmail(email);
+      setShow2FAModal(true);
+      showToast('Introduce tu código 2FA para verificar acceso de Super Admin.');
+      return true;
+    }
+
+    handleFirebaseUserSync(email, name, undefined, role);
     return true;
   };
 
@@ -1225,6 +1968,198 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return `https://wa.me/${cleanPhone || '584129876543'}?text=${text}`;
   };
 
+  // Wall Social Actions ("Para Ti" with strict 1-post-per-day rule)
+  const todayDateStr = new Date().toISOString().split('T')[0];
+  const userTodayPost = currentUser
+    ? wallPosts.find(
+        (p) =>
+          (p.authorId === currentUser.id ||
+            p.authorEmail?.toLowerCase() === currentUser.email?.toLowerCase()) &&
+          p.createdDateString === todayDateStr
+      ) || null
+    : null;
+  const canUserPostToday = !userTodayPost;
+
+  const createWallPost = async (
+    text: string,
+    imageUrl?: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!currentUser) {
+      setShowAuthModal(true);
+      showToast('Debes iniciar sesión para publicar en el Muro Para Ti.');
+      return { success: false, error: 'auth_required' };
+    }
+
+    if (currentUser.status === 'suspended') {
+      showToast('Acceso Denegado: Tu cuenta se encuentra suspendida.');
+      return { success: false, error: 'account_suspended' };
+    }
+
+    if (!canUserPostToday) {
+      showToast('Límite diario alcanzado: Solo puedes realizar 1 post por día en Para Ti.');
+      return { success: false, error: 'daily_limit_reached' };
+    }
+
+    if (!text.trim() && !imageUrl) {
+      showToast('Por favor incluye un mensaje o una fotografía en tu publicación.');
+      return { success: false, error: 'empty_content' };
+    }
+
+    const postId = `post_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const newPost: WallPost = {
+      id: postId,
+      authorId: currentUser.id,
+      authorEmail: currentUser.email,
+      authorName: currentUser.name || 'Usuario DIFUSION',
+      authorAvatar:
+        currentUser.avatar ||
+        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
+      authorRole: (currentUser.role as any) || 'client',
+      authorCity: currentModelProfile?.location?.city || (currentUser as any).city || 'Venezuela',
+      text: text.trim(),
+      imageUrl: imageUrl?.trim() || undefined,
+      createdAt: new Date().toISOString(),
+      createdDateString: todayDateStr,
+      reactions: {
+        fire: [],
+        heart: [],
+        like: [],
+      },
+      comments: [],
+    };
+
+    setWallPosts((prev) => [newPost, ...prev]);
+
+    try {
+      await setDoc(doc(db, 'wall', postId), newPost);
+    } catch (err) {
+      console.warn('Firestore wall post save note:', err);
+    }
+
+    showToast('¡Tu publicación diaria se compartió con éxito en Para Ti! 🔥');
+    sendPushNotification(
+      '✨ Nueva Publicación en Para Ti',
+      `${currentUser.name} compartió una actualización en el Muro Social.`,
+      'system'
+    );
+    return { success: true };
+  };
+
+  const toggleWallReaction = async (
+    postId: string,
+    reactionType: WallReactionType
+  ): Promise<void> => {
+    if (!currentUser) {
+      setShowAuthModal(true);
+      showToast('Inicia sesión para reaccionar con 🔥 ❤️ 👍');
+      return;
+    }
+
+    const userId = currentUser.id || currentUser.email;
+    let targetUpdated: WallPost | null = null;
+
+    setWallPosts((prev) =>
+      prev.map((post) => {
+        if (post.id !== postId) return post;
+        const currentList = post.reactions?.[reactionType] || [];
+        const exists = currentList.includes(userId);
+        const newList = exists
+          ? currentList.filter((uid) => uid !== userId)
+          : [...currentList, userId];
+        const updated: WallPost = {
+          ...post,
+          reactions: {
+            fire: post.reactions?.fire || [],
+            heart: post.reactions?.heart || [],
+            like: post.reactions?.like || [],
+            [reactionType]: newList,
+          },
+        };
+        targetUpdated = updated;
+        return updated;
+      })
+    );
+
+    if (targetUpdated) {
+      try {
+        await setDoc(doc(db, 'wall', postId), targetUpdated, { merge: true });
+      } catch (err) {
+        console.warn('Firestore reaction update note:', err);
+      }
+    }
+  };
+
+  const addWallComment = async (
+    postId: string,
+    text: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!currentUser) {
+      setShowAuthModal(true);
+      showToast('Debes iniciar sesión para comentar.');
+      return { success: false, error: 'auth_required' };
+    }
+
+    if (!text.trim()) {
+      return { success: false, error: 'empty_comment' };
+    }
+
+    const commentId = `comm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const newComment = {
+      id: commentId,
+      postId,
+      authorId: currentUser.id,
+      authorName: currentUser.name || 'Usuario DIFUSION',
+      authorAvatar:
+        currentUser.avatar ||
+        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
+      authorRole: (currentUser.role as any) || 'client',
+      text: text.trim(),
+      createdAt: 'Ahora mismo',
+    };
+
+    let targetUpdated: WallPost | null = null;
+    setWallPosts((prev) =>
+      prev.map((post) => {
+        if (post.id !== postId) return post;
+        const updated: WallPost = {
+          ...post,
+          comments: [...(post.comments || []), newComment],
+        };
+        targetUpdated = updated;
+        return updated;
+      })
+    );
+
+    if (targetUpdated) {
+      try {
+        await setDoc(doc(db, 'wall', postId), targetUpdated, { merge: true });
+      } catch (err) {
+        console.warn('Firestore comment update note:', err);
+      }
+    }
+
+    showToast('Comentario publicado');
+    return { success: true };
+  };
+
+  const deleteWallPost = async (postId: string): Promise<void> => {
+    const target = wallPosts.find((p) => p.id === postId);
+    if (!isSuperAdmin && target?.authorEmail?.toLowerCase() !== currentUser?.email?.toLowerCase()) {
+      showToast('No tienes permisos para eliminar esta publicación.');
+      return;
+    }
+
+    setWallPosts((prev) => prev.filter((p) => p.id !== postId));
+
+    try {
+      await deleteDoc(doc(db, 'wall', postId));
+    } catch (err) {
+      console.warn('Firestore delete wall post note:', err);
+    }
+
+    showToast('Publicación eliminada correctamente.');
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -1249,6 +2184,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setShowSettingsModal,
         showReviewModal,
         setShowReviewModal,
+        showRoleSelectionModal,
+        setShowRoleSelectionModal,
+        selectUserRequestedRole,
         toastMessage,
         showToast,
         availableCities,
@@ -1272,7 +2210,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleVipModel,
         deleteModel,
         addReview,
+        addEvent,
+        deleteEvent,
+        updateStreamConfig,
         applyToCasting,
+        reviewCastingApplicant,
         sendMessage,
         markNotificationAsRead,
         clearAllNotifications,
@@ -1285,6 +2227,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isModelUser,
         currentModelProfile,
         generateWhatsAppUrl,
+        wallPosts,
+        createWallPost,
+        toggleWallReaction,
+        addWallComment,
+        deleteWallPost,
+        canUserPostToday,
+        userTodayPost,
       }}
     >
       {children}

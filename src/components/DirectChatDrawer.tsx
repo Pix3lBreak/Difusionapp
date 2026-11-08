@@ -28,6 +28,7 @@ export const DirectChatDrawer: React.FC<DirectChatDrawerProps> = ({
     sendMessage,
     generateWhatsAppUrl,
     currentUser,
+    currentModelProfile,
     isSuperAdmin,
     setActiveTab,
     showToast,
@@ -40,6 +41,8 @@ export const DirectChatDrawer: React.FC<DirectChatDrawerProps> = ({
   const [eventDate, setEventDate] = useState('2026-06-15');
 
   const messages = chatMessages[model.id] || [];
+  const isModelViewing = currentModelProfile?.id === model.id;
+  const isOwnMessage = (m: (typeof messages)[0]) => (isModelViewing ? !m.isFromUser : m.isFromUser);
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -168,35 +171,39 @@ export const DirectChatDrawer: React.FC<DirectChatDrawerProps> = ({
               Escribe un mensaje para iniciar la coordinación directa.
             </div>
           ) : (
-            messages.map((m) => (
-              <div
-                key={m.id}
-                className={`flex flex-col ${
-                  m.isFromUser ? 'items-end' : 'items-start'
-                }`}
-              >
+            messages.map((m) => {
+              const isMine = isOwnMessage(m);
+              return (
                 <div
-                  className={`max-w-[85%] rounded-2xl p-3 text-xs leading-relaxed ${
-                    m.isFromUser
-                      ? 'bg-[var(--color-primary)] text-black font-medium rounded-br-none shadow-md'
-                      : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-none'
-                  }`}
+                  key={m.id}
+                  className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}
                 >
-                  {m.isQuoteRequest && (
-                    <div className="mb-1.5 pb-1.5 border-b border-black/20 font-bold flex items-center gap-1">
-                      <Sparkles className="w-3 h-3" />
-                      COTIZACIÓN OFICIAL ENVIADA
-                    </div>
-                  )}
-                  <p>{m.text}</p>
-                </div>
+                  <span className="text-[10px] text-zinc-400 mb-0.5 px-1 font-semibold">
+                    {m.senderName}
+                  </span>
+                  <div
+                    className={`max-w-[85%] rounded-2xl p-3 text-xs leading-relaxed ${
+                      isMine
+                        ? 'bg-[var(--color-primary)] text-black font-medium rounded-br-none shadow-md'
+                        : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-none'
+                    }`}
+                  >
+                    {m.isQuoteRequest && (
+                      <div className="mb-1.5 pb-1.5 border-b border-black/20 font-bold flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" />
+                        COTIZACIÓN OFICIAL ENVIADA
+                      </div>
+                    )}
+                    <p>{m.text}</p>
+                  </div>
 
-                <div className="flex items-center gap-1 mt-1 text-[10px] text-zinc-500">
-                  <span>{m.timestamp}</span>
-                  {m.isFromUser && <CheckCheck className="w-3 h-3 text-[var(--color-primary)]" />}
+                  <div className="flex items-center gap-1 mt-1 text-[10px] text-zinc-500">
+                    <span>{m.timestamp}</span>
+                    {isMine && <CheckCheck className="w-3 h-3 text-[var(--color-primary)]" />}
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -247,7 +254,7 @@ export const DirectChatDrawer: React.FC<DirectChatDrawerProps> = ({
               El Super Admin debe activar tu perfil antes de que puedas enviar mensajes directos a las promotoras.
             </div>
           </div>
-        ) : currentUser.role === 'model' && !isSuperAdmin ? (
+        ) : currentUser.role === 'model' && !isSuperAdmin && currentModelProfile?.id !== model.id ? (
           <div className="p-4 bg-zinc-950 border-t border-amber-500/30 text-amber-300 text-xs flex items-center gap-2.5">
             <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
             <div>
@@ -261,7 +268,13 @@ export const DirectChatDrawer: React.FC<DirectChatDrawerProps> = ({
               type="text"
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
-              placeholder="Escribe tu mensaje a la agencia..."
+              placeholder={
+                isModelViewing
+                  ? `Responder como ${model.name}...`
+                  : isSuperAdmin
+                  ? `Responder como Administración...`
+                  : `Escribe tu mensaje a ${model.name}...`
+              }
               className="flex-1 px-3 py-2.5 bg-black rounded-xl text-xs text-white placeholder-zinc-500 border border-zinc-800 focus:outline-none focus:border-[var(--color-primary)]"
             />
             <button

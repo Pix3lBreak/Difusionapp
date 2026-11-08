@@ -1,6 +1,6 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
-import { Bell, ShieldCheck, UserCheck, Settings, LogIn, LogOut, Flame } from 'lucide-react';
+import { Bell, ShieldCheck, UserCheck, Settings, LogIn, LogOut, Flame, Building } from 'lucide-react';
 
 interface HeaderProps {
   onOpenNotifications: () => void;
@@ -60,6 +60,17 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNotifications, onOpenSetti
             Catálogo
           </button>
           <button
+            onClick={() => setActiveTab('parati')}
+            className={`whitespace-nowrap shrink-0 transition-colors py-1 flex items-center gap-1.5 ${
+              activeTab === 'parati'
+                ? 'text-[var(--color-primary)] font-semibold border-b-2 border-[var(--color-primary)]'
+                : 'hover:text-white'
+            }`}
+          >
+            <Flame className="w-4 h-4 text-orange-400" />
+            Para Ti (Muro)
+          </button>
+          <button
             onClick={() => setActiveTab('eventos')}
             className={`whitespace-nowrap shrink-0 transition-colors py-1 ${
               activeTab === 'eventos'
@@ -95,15 +106,28 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNotifications, onOpenSetti
           )}
           {!isSuperAdmin && currentUser?.role === 'model' && (
             <button
-              onClick={() => setActiveTab('admin')}
+              onClick={() => setActiveTab('dashboard')}
               className={`whitespace-nowrap shrink-0 transition-colors py-1 flex items-center gap-1.5 ${
-                activeTab === 'admin'
+                activeTab === 'dashboard'
                   ? 'text-[var(--color-primary)] font-semibold border-b-2 border-[var(--color-primary)]'
                   : 'hover:text-white text-[var(--color-primary)] font-semibold'
               }`}
             >
               <UserCheck className="w-4 h-4 text-[var(--color-primary)]" />
-              Editar Mi Perfil
+              Mi MediaKit & Perfil
+            </button>
+          )}
+          {!isSuperAdmin && currentUser?.role === 'empresa' && (
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className={`whitespace-nowrap shrink-0 transition-colors py-1 flex items-center gap-1.5 ${
+                activeTab === 'dashboard'
+                  ? 'text-blue-400 font-semibold border-b-2 border-blue-400'
+                  : 'hover:text-white text-blue-400 font-semibold'
+              }`}
+            >
+              <Building className="w-4 h-4 text-blue-400" />
+              MediaKit Empresa
             </button>
           )}
         </nav>

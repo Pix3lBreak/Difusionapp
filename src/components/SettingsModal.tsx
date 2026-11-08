@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { X, Palette, Type, Moon, Sun, Shield, Smartphone } from 'lucide-react';
+import { X, Palette, Type, Moon, Sun, Shield, Smartphone, Image as ImageIcon } from 'lucide-react';
+import { HeroBannerSettings } from './HeroBannerSettings';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -8,7 +9,8 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const { themeConfig, updateThemeConfig } = useApp();
+  const { themeConfig, updateThemeConfig, isSuperAdmin } = useApp();
+  const [modalTab, setModalTab] = useState<'estilos' | 'cabecera'>('estilos');
 
   if (!isOpen) return null;
 
@@ -24,22 +26,59 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
-      <div className="w-full max-w-md rounded-3xl bg-zinc-950 border border-zinc-800 p-6 shadow-2xl relative">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800"
-        >
-          <X className="w-5 h-5" />
-        </button>
-
-        <div className="flex items-center gap-2 mb-4">
-          <Palette className="w-5 h-5 text-[var(--color-primary)]" />
-          <h3 className="text-base font-bold text-white">
-            Personalización de Marca & Interfaz
-          </h3>
+      <div className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-3xl bg-zinc-950 border border-zinc-800 shadow-2xl relative overflow-hidden">
+        {/* Header */}
+        <div className="p-5 border-b border-zinc-800 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2">
+            <Palette className="w-5 h-5 text-[var(--color-primary)]" />
+            <h3 className="text-base font-bold text-white">
+              Configuración & Personalización
+            </h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        <div className="space-y-5">
+        {/* Tab switcher */}
+        <div className="flex items-center gap-2 px-5 pt-3 border-b border-zinc-800/80 shrink-0">
+          <button
+            type="button"
+            onClick={() => setModalTab('estilos')}
+            className={`px-3 py-2 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 ${
+              modalTab === 'estilos'
+                ? 'border-[var(--color-primary)] text-white'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Palette className="w-3.5 h-3.5 text-[var(--color-primary)]" />
+            <span>Colores & Tipografía</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setModalTab('cabecera')}
+            className={`px-3 py-2 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 ${
+              modalTab === 'cabecera'
+                ? 'border-[var(--color-primary)] text-white'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <ImageIcon className="w-3.5 h-3.5 text-[var(--color-primary)]" />
+            <span>Fondo de Cabecera (Marca de Agua)</span>
+          </button>
+        </div>
+
+        {/* Body content */}
+        <div className="p-5 overflow-y-auto max-h-[calc(90vh-140px)] space-y-5">
+          {modalTab === 'cabecera' ? (
+            <HeroBannerSettings />
+          ) : (
+            <div className="space-y-5 max-w-lg mx-auto">
+
           {/* Accent Color */}
           <div>
             <label className="block text-xs font-semibold text-zinc-300 mb-2">
@@ -121,6 +160,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           >
             Aplicar y Guardar Cambios
           </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

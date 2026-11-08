@@ -18,14 +18,28 @@ export const GoogleAuthModal: React.FC = () => {
     signInWithFirebaseGoogle,
   } = useApp();
 
+  const [selectedRole, setSelectedRole] = useState<'client' | 'empresa' | 'model'>('client');
   const [twoFactorInput, setTwoFactorInput] = useState('');
   const [isFirebaseLoading, setIsFirebaseLoading] = useState(false);
+  const [showMobileDirect, setShowMobileDirect] = useState(false);
+  const [directGoogleEmail, setDirectGoogleEmail] = useState('');
 
   if (!showAuthModal && !show2FAModal) return null;
 
   const handleFirebasePopup = async () => {
     setIsFirebaseLoading(true);
-    await signInWithFirebaseGoogle();
+    const res = await signInWithFirebaseGoogle(undefined, selectedRole);
+    setIsFirebaseLoading(false);
+    if (!res.success && res.isPopupBlocked) {
+      setShowMobileDirect(true);
+    }
+  };
+
+  const handleDirectGoogleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!directGoogleEmail.trim()) return;
+    setIsFirebaseLoading(true);
+    await signInWithFirebaseGoogle(directGoogleEmail.trim(), selectedRole);
     setIsFirebaseLoading(false);
   };
 
@@ -68,11 +82,53 @@ export const GoogleAuthModal: React.FC = () => {
           </div>
 
           <h3 className="text-xl font-bold text-white tracking-tight">
-            Iniciar Sesión con Google
+            Acceso con Cuenta Google
           </h3>
-          <p className="text-xs text-zinc-400 mt-2 mb-6 max-w-sm mx-auto">
-            Acceso seguro oficial con Google OAuth 2.0 y certificados SSL para la plataforma DIFUSION.
+          <p className="text-xs text-zinc-400 mt-1 mb-4 max-w-sm mx-auto">
+            Indica tu tipo de perfil antes de continuar con Google:
           </p>
+
+          {/* Quick Role Selection for Google Users */}
+          <div className="grid grid-cols-3 gap-2 mb-4 text-left">
+            <button
+              type="button"
+              onClick={() => setSelectedRole('model')}
+              className={`p-2.5 rounded-xl border text-center transition-all ${
+                selectedRole === 'model'
+                  ? 'bg-purple-950/40 border-purple-500 text-white shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                  : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+              }`}
+            >
+              <div className="text-base mb-0.5">👠</div>
+              <div className="text-[11px] font-bold leading-tight">Promotora / Modelo</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedRole('empresa')}
+              className={`p-2.5 rounded-xl border text-center transition-all ${
+                selectedRole === 'empresa'
+                  ? 'bg-blue-950/40 border-blue-500 text-white shadow-[0_0_10px_rgba(59,130,246,0.3)]'
+                  : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+              }`}
+            >
+              <div className="text-base mb-0.5">🏢</div>
+              <div className="text-[11px] font-bold leading-tight">Empresa / Marca</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedRole('client')}
+              className={`p-2.5 rounded-xl border text-center transition-all ${
+                selectedRole === 'client'
+                  ? 'bg-emerald-950/40 border-[var(--color-primary)] text-white shadow-[0_0_10px_rgba(57,255,20,0.3)]'
+                  : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+              }`}
+            >
+              <div className="text-base mb-0.5">👤</div>
+              <div className="text-[11px] font-bold leading-tight">Cliente Particular</div>
+            </button>
+          </div>
 
           <button
             onClick={handleFirebasePopup}
@@ -97,8 +153,78 @@ export const GoogleAuthModal: React.FC = () => {
                 d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
               />
             </svg>
-            <span>{isFirebaseLoading ? 'Conectando con Google...' : 'Continuar con Google Oficial'}</span>
+            <span>{isFirebaseLoading ? 'Conectando con Google...' : `Continuar como ${selectedRole === 'model' ? 'Promotora' : selectedRole === 'empresa' ? 'Empresa' : 'Cliente'}`}</span>
           </button>
+
+          {/* Quick toggle for mobile direct access */}
+          <div className="mt-3 text-center">
+            <button
+              type="button"
+              onClick={() => setShowMobileDirect(!showMobileDirect)}
+              className="inline-flex items-center gap-1.5 text-[11px] text-zinc-400 hover:text-[var(--color-primary)] transition-colors underline"
+            >
+              <Smartphone className="w-3.5 h-3.5 text-[var(--color-primary)]" />
+              <span>
+                {showMobileDirect
+                  ? 'Ocultar acceso directo'
+                  : '¿En teléfono móvil o se cerró la ventana? Toca aquí'}
+              </span>
+            </button>
+          </div>
+
+          {/* Direct Mobile Google Card */}
+          {showMobileDirect && (
+            <div className="mt-4 p-4 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3 text-left">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-[var(--color-primary)]" />
+                  Acceso Directo Google (Móvil)
+                </span>
+                <span className="text-[10px] text-[var(--color-primary)] font-semibold">
+                  Sin ventanas emergentes
+                </span>
+              </div>
+
+              {/* Super Admin 1-click */}
+              <button
+                type="button"
+                onClick={() => {
+                  setDirectGoogleEmail('pixelglez1988@gmail.com');
+                  signInWithFirebaseGoogle('pixelglez1988@gmail.com');
+                }}
+                className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-700 hover:border-[var(--color-primary)] text-left flex items-center justify-between transition-colors group"
+              >
+                <div>
+                  <div className="text-xs font-bold text-white group-hover:text-[var(--color-primary)] flex items-center gap-1">
+                    <span>👑 Super Admin Google</span>
+                  </div>
+                  <div className="text-[10px] text-zinc-400 font-mono">pixelglez1988@gmail.com</div>
+                </div>
+                <span className="text-[10px] text-zinc-400 group-hover:text-white">Verificar con 2FA →</span>
+              </button>
+
+              <form onSubmit={handleDirectGoogleLogin} className="space-y-2 pt-2 border-t border-zinc-800">
+                <label className="block text-[11px] text-zinc-400 font-medium">
+                  O introduce tu correo @gmail.com:
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={directGoogleEmail}
+                  onChange={(e) => setDirectGoogleEmail(e.target.value)}
+                  placeholder="tu.correo@gmail.com"
+                  className="w-full px-3 py-2 rounded-xl bg-black border border-zinc-800 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-[var(--color-primary)]"
+                />
+                <button
+                  type="submit"
+                  disabled={isFirebaseLoading}
+                  className="w-full py-2 rounded-xl bg-[var(--color-primary)] text-black font-bold text-xs hover:brightness-110 transition-all shadow-md"
+                >
+                  Ingresar con esta Cuenta Google
+                </button>
+              </form>
+            </div>
+          )}
 
           <div className="mt-6 pt-4 border-t border-zinc-900 flex items-center justify-center gap-2 text-[11px] text-zinc-500">
             <ShieldCheck className="w-3.5 h-3.5 text-[var(--color-primary)]" />

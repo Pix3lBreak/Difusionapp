@@ -26,6 +26,8 @@ export const PushNotificationDrawer: React.FC<PushNotificationDrawerProps> = ({
     markNotificationAsRead,
     clearAllNotifications,
     sendPushNotification,
+    models,
+    setActiveChatModel,
     showToast,
   } = useApp();
 
@@ -105,36 +107,56 @@ export const PushNotificationDrawer: React.FC<PushNotificationDrawerProps> = ({
               No tienes notificaciones pendientes.
             </div>
           ) : (
-            notifications.map((n) => (
-              <div
-                key={n.id}
-                onClick={() => markNotificationAsRead(n.id)}
-                className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                  n.read
-                    ? 'bg-zinc-900/40 border-zinc-900 opacity-75'
-                    : 'bg-zinc-900 border-zinc-800 shadow-md'
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-xl bg-black border border-zinc-800 shrink-0 mt-0.5">
-                    {getIcon(n.type)}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-bold text-white leading-tight">
-                        {n.title}
-                      </h4>
-                      <span className="text-[10px] text-zinc-500 font-mono">
-                        {n.timestamp}
-                      </span>
+            notifications.map((n) => {
+              const handleItemClick = () => {
+                markNotificationAsRead(n.id);
+                if (n.type === 'message' && n.modelId) {
+                  const target = models.find((m) => m.id === n.modelId);
+                  if (target) {
+                    setActiveChatModel(target);
+                    onClose();
+                  }
+                }
+              };
+
+              return (
+                <div
+                  key={n.id}
+                  onClick={handleItemClick}
+                  className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                    n.read
+                      ? 'bg-zinc-900/40 border-zinc-900 opacity-75'
+                      : 'bg-zinc-900 border-zinc-800 shadow-md hover:border-[var(--color-primary)]'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-xl bg-black border border-zinc-800 shrink-0 mt-0.5">
+                      {getIcon(n.type)}
                     </div>
-                    <p className="text-xs text-zinc-300 font-normal leading-relaxed mt-1">
-                      {n.message}
-                    </p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1">
+                        <h4 className="text-xs font-bold text-white leading-tight truncate">
+                          {n.title}
+                        </h4>
+                        <span className="text-[10px] text-zinc-500 font-mono shrink-0">
+                          {n.timestamp}
+                        </span>
+                      </div>
+                      <p className="text-xs text-zinc-300 font-normal leading-relaxed mt-1 line-clamp-2">
+                        {n.message}
+                      </p>
+                      {n.type === 'message' && n.modelId && (
+                        <div className="mt-2 flex items-center justify-end">
+                          <span className="text-[10px] text-[var(--color-primary)] font-bold flex items-center gap-1 hover:underline">
+                            Abrir chat y responder →
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 

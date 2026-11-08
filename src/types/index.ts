@@ -115,6 +115,18 @@ export interface Review {
   presenceScore: number;
 }
 
+export interface EventApplicant {
+  id: string;
+  modelId: string;
+  modelName: string;
+  modelAvatar: string;
+  modelCity?: string;
+  phone?: string;
+  instagram?: string;
+  appliedAt: string;
+  status: 'pendiente' | 'aprobada' | 'rechazada';
+}
+
 export interface EventItem {
   id: string;
   title: string;
@@ -126,9 +138,12 @@ export interface EventItem {
   banner: string;
   requiredProfilesCount: number;
   assignedModelIds: string[];
+  applicants?: EventApplicant[];
   status: 'upcoming' | 'casting_open' | 'completed';
   description: string;
   organizer: string;
+  organizerEmail?: string;
+  organizerCompany?: string;
 }
 
 export interface ChatMessage {
@@ -158,6 +173,7 @@ export interface PushNotification {
   read: boolean;
   type: 'booking' | 'casting' | 'message' | 'stream' | 'system';
   actionUrl?: string;
+  modelId?: string;
 }
 
 export type UserAccountStatus = 'active' | 'standby' | 'suspended';
@@ -173,12 +189,80 @@ export interface UserAccount {
   clientType?: 'empresa' | 'particular';
   companyName?: string;
   companyRif?: string;
+  companyIndustry?: string; // Sector comercial / Industria
+  companyBio?: string; // Descripción corporativa / MediaKit
+  companyCity?: string; // Ciudad de operaciones en Venezuela
+  companyAddress?: string; // Sede principal / Dirección
+  companyWebsite?: string; // Sitio web
+  companyInstagram?: string; // Usuario de Instagram de la empresa
+  companyLogo?: string; // Logo corporativo
+  companyEventTypes?: string[]; // Tipos de eventos frecuentes
+  contactPerson?: string; // Persona de contacto / Cargo
   createdAt?: string;
   activatedAt?: string;
   activatedBy?: string;
   twoFactorEnabled: boolean;
   isVerified: boolean;
   phone?: string;
+}
+
+export interface StreamConfig {
+  embedHtml: string;
+  streamTitle: string;
+  platformName: string;
+  hostName: string;
+  hostAvatar: string;
+  isLive: boolean;
+  viewerCount: number;
+}
+
+export type HeroBannerType = 'image' | 'slideshow' | 'video' | 'gradient';
+
+export interface HeroBannerConfig {
+  enabled: boolean;
+  type: HeroBannerType;
+  imageUrl: string;
+  slideshowImages: string[];
+  slideshowIntervalSeconds: number; // e.g. 5
+  videoUrl: string;
+  opacity: number; // e.g. 0.25
+  overlayTint: 'dark' | 'neon' | 'vignette' | 'subtle';
+  blur: number; // e.g. 0, 1, 2, 4
+  watermarkText?: string;
+}
+
+export interface WallComment {
+  id: string;
+  postId: string;
+  authorId: string;
+  authorName: string;
+  authorAvatar: string;
+  authorRole: 'superadmin' | 'admin' | 'model' | 'client' | 'empresa';
+  text: string;
+  createdAt: string;
+}
+
+export type WallReactionType = 'fire' | 'heart' | 'like';
+
+export interface WallPost {
+  id: string;
+  authorId: string;
+  authorEmail: string;
+  authorName: string;
+  authorAvatar: string;
+  authorRole: 'superadmin' | 'admin' | 'model' | 'client' | 'empresa';
+  authorCity?: string;
+  text: string;
+  imageUrl?: string;
+  createdAt: string; // ISO date or formatted
+  createdDateString: string; // YYYY-MM-DD for 1 post per day enforcement
+  reactions: {
+    fire: string[]; // array of userIds
+    heart: string[]; // array of userIds
+    like: string[]; // array of userIds
+  };
+  comments: WallComment[];
+  pinned?: boolean;
 }
 
 export interface AgencyThemeConfig {
@@ -190,6 +274,8 @@ export interface AgencyThemeConfig {
   agencyPhone: string;
   agencyEmail: string;
   availableCities: string[]; // Ciudades de Venezuela gestionables por el Super Admin
+  streamConfig?: StreamConfig; // Configuración de video en vivo (HTML embed)
+  heroBannerConfig?: HeroBannerConfig; // Configuración de cabecera con fondo en marca de agua
   privacy: {
     publicProfiles: boolean;
     requireLoginForRates: boolean;
