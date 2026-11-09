@@ -462,7 +462,7 @@ export const AdminDashboard: React.FC = () => {
         </div>
         <h2 className="text-xl font-bold text-white mb-2">Panel de Administración Restringido</h2>
         <p className="text-zinc-400 text-xs mb-6 max-w-md mx-auto">
-          Todas las modificaciones administrativas (ciudades, tarifas oficiales y activación de cuentas) son realizadas exclusivamente por el Super Admin (pixelglez1988@gmail.com). Como usuario, puedes consultar y editar tus datos personales desde tu propio panel.
+          Todas las modificaciones administrativas (ciudades, tarifas oficiales y activación de cuentas) son realizadas exclusivamente por el Super Admin Oficial. Como usuario, puedes consultar y editar tus datos personales desde tu propio panel.
         </p>
         <button
           onClick={() => setGlobalActiveTab('dashboard')}
@@ -699,7 +699,7 @@ export const AdminDashboard: React.FC = () => {
                 <div>
                   <div className="font-bold text-white">Privacidad y Protección de Datos</div>
                   <p className="text-zinc-400 mt-0.5">
-                    Como modelo registrada, solo puedes editar tu propia información y MediaKit. Las tarifas oficiales son fijadas por el Super Admin (pixelglez1988@gmail.com).
+                    Como modelo registrada, solo puedes editar tu propia información y MediaKit. Las tarifas oficiales son fijadas por la Administración Oficial.
                   </p>
                 </div>
               </div>

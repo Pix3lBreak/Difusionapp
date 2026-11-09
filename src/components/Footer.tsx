@@ -62,7 +62,7 @@ export const Footer: React.FC = () => {
                   onClick={() => setShowAuthModal(true)}
                   className="hover:text-[var(--color-primary)] transition-colors"
                 >
-                  Acceso Google / Super Admin
+                  Acceso a Mi Cuenta
                 </button>
               </li>
             </ul>
@@ -126,7 +126,7 @@ export const Footer: React.FC = () => {
               <Lock className="w-3 h-3" /> Cifrado 2FA
             </span>
             <span>·</span>
-            <span>Super Admin: pixelglez1988@gmail.com</span>
+            <span>Plataforma Segura SSL</span>
           </div>
         </div>
 
